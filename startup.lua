@@ -1,3 +1,3 @@
 term.clear()
-term.setcursorpos(1,1)
+term.setCursorPos(1,1)
 print("Hello User")
