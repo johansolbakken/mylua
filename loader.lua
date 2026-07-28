@@ -5,6 +5,7 @@ local branch = "main"
 local files = {
     "loader.lua",
     "startup.lua",
+    "storage_room.lua",
 }
 
 local function getLatestCommit()
