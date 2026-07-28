@@ -4,6 +4,7 @@ local branch = "main"
 
 local files = {
     "loader.lua",
+    "startup.lua",
     -- "sorter.lua",
     -- "lib/inventory.lua",
 }
