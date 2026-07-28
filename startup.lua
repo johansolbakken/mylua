@@ -1,3 +1,5 @@
 term.clear()
 term.setCursorPos(1,1)
-print("Hello User")
+write("Login. Who are you? ")
+name = read()
+print("Hello " .. ", welcome to computer!)
