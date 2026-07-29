@@ -5,6 +5,8 @@ local DIR_SOUTH = 1
 local DIR_WEST = 2
 local DIR_NORTH = 3
 local STAIR_TUNNEL_HEIGHT = 4
+local WORKSPACE_HEADROOM = 3
+local WORKSPACE_TUNNEL_HEIGHT = WORKSPACE_HEADROOM + 1
 
 local dx = {
     [DIR_EAST] = 1,
@@ -131,11 +133,19 @@ local function waitForFuel(required, context)
     end
 end
 
+local function blockNameFromDetail(data)
+    if data and data.name then
+        return data.name
+    end
+
+    return "unknown block"
+end
+
 local function blockName(inspect)
     local ok, data = inspect()
 
-    if ok and data and data.name then
-        return data.name
+    if ok then
+        return blockNameFromDetail(data)
     end
 
     return "unknown block"
@@ -145,8 +155,51 @@ local function formatDigReason(direction, reason, inspect)
     return "blocked " .. direction .. " by " .. blockName(inspect) .. " (" .. tostring(reason) .. ")"
 end
 
+local function isProtectedBlock(data)
+    if not data or not data.name then
+        return false
+    end
+
+    local path = data.name:match(":(.+)$") or data.name
+
+    if path:find("torch", 1, true) then
+        return true
+    end
+
+    if data.tags then
+        for tag in pairs(data.tags) do
+            if tag:find("torches", 1, true) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function waitForProtectedBlock(direction, inspect)
+    while true do
+        local ok, data = inspect()
+
+        if not ok or not isProtectedBlock(data) then
+            return
+        end
+
+        print("")
+        print("Protected block " .. direction .. ": " .. blockNameFromDetail(data))
+        print("Move it manually if needed, then press Enter.")
+        read()
+    end
+end
+
 local function clearForward()
     while turtle.detect() do
+        waitForProtectedBlock("forward", turtle.inspect)
+
+        if not turtle.detect() then
+            break
+        end
+
         local success, reason = turtle.dig()
 
         if not success then
@@ -161,6 +214,12 @@ end
 
 local function clearUp()
     while turtle.detectUp() do
+        waitForProtectedBlock("above", turtle.inspectUp)
+
+        if not turtle.detectUp() then
+            break
+        end
+
         local success, reason = turtle.digUp()
 
         if not success then
@@ -175,6 +234,12 @@ end
 
 local function clearDown()
     while turtle.detectDown() do
+        waitForProtectedBlock("below", turtle.inspectDown)
+
+        if not turtle.detectDown() then
+            break
+        end
+
         local success, reason = turtle.digDown()
 
         if not success then
@@ -496,6 +561,7 @@ print("")
 print("Square shaft staircase")
 print("Shaft diameter: " .. shaftWidth)
 print("Outer width: " .. outerWidth)
+print("Workspace headroom: " .. WORKSPACE_HEADROOM .. " above floor")
 print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
 
 if requestedDepth then
@@ -527,6 +593,54 @@ local function maybeServiceShaft()
     elseif fuelLevel() < distanceToHome() + 30 then
         serviceByCoordinates("Fuel is low.", true)
     end
+end
+
+local function clearWorkspaceColumn()
+    maybeServiceShaft()
+    return clearTunnelHeight(WORKSPACE_TUNNEL_HEIGHT)
+end
+
+local function clearOuterBoxLayer()
+    moveToDepth(y)
+    moveToZ(0)
+    moveToX(0)
+    turnTo(DIR_EAST)
+
+    for row = 1, outerWidth do
+        for column = 1, outerWidth do
+            local cleared, reason = clearWorkspaceColumn()
+
+            if not cleared then
+                return false, reason
+            end
+
+            if column < outerWidth then
+                mustMove(moveForward())
+            end
+        end
+
+        if row < outerWidth then
+            if row % 2 == 1 then
+                turnRight()
+                mustMove(moveForward())
+                turnRight()
+            else
+                turnLeft()
+                mustMove(moveForward())
+                turnLeft()
+            end
+        end
+    end
+
+    turnRight()
+
+    for _ = 1, outerWidth - 1 do
+        mustMove(moveForward())
+    end
+
+    turnRight()
+
+    return true
 end
 
 local function mineShaftLayer()
@@ -573,15 +687,23 @@ local function mineCentralShaft()
     print("")
     print("Mining shaft with live staircase updates")
 
-    moveToX(shaftOffset)
-    moveToZ(shaftOffset)
-    turnTo(DIR_EAST)
-
     local completedDepth = 0
     local stopReason = nil
 
     while requestedDepth == nil or completedDepth < requestedDepth do
+        print("Clearing outer workspace layer " .. tostring(completedDepth + 1) .. "...")
+
+        local cleared, clearReason = clearOuterBoxLayer()
+
+        if not cleared then
+            stopReason = clearReason
+            break
+        end
+
         print("Mining shaft layer " .. tostring(completedDepth + 1) .. "...")
+        moveToX(shaftOffset)
+        moveToZ(shaftOffset)
+        turnTo(DIR_EAST)
 
         local ok, reason = mineShaftLayer()
 
