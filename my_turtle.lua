@@ -33,10 +33,12 @@ local nativePrint = print
 local logModemName = nil
 local logBroadcastEnabled = false
 local resumeMode = args[1] == "resume" or args[1] == "--resume" or args[1] == "continue"
+local recoverMode = args[1] == "recover" or args[1] == "--recover" or args[1] == "scan"
 local stateStatus = "stopped"
 local currentPhase = "init"
 local shaftWidth = nil
 local requestedDepth = nil
+local batchSize = 5
 local outerWidth = nil
 local sideLength = nil
 local shaftOffset = 2
@@ -196,6 +198,7 @@ saveState = function()
         phase = currentPhase,
         shaftWidth = shaftWidth,
         requestedDepth = requestedDepth,
+        batchSize = batchSize,
         completedDepth = completedDepth,
         stairActions = copyList(stairActions),
         stairStepsDone = stairStepsDone,
@@ -253,6 +256,7 @@ end
 local function applyLoadedState(state)
     shaftWidth = state.shaftWidth
     requestedDepth = state.requestedDepth
+    batchSize = state.batchSize or batchSize
     completedDepth = state.completedDepth or 0
     stairActions = copyList(state.stairActions)
     stairStepsDone = state.stairStepsDone or 0
@@ -739,6 +743,11 @@ if resumeMode then
     saveState()
     print("Loaded miner state from " .. STATE_PATH)
 else
+    local argumentOffset = recoverMode and 1 or 0
+    local widthArg = args[1 + argumentOffset]
+    local depthArg = args[2 + argumentOffset]
+    local batchArg = args[3 + argumentOffset]
+
     if activeStateExists() then
         print("An active miner state already exists.")
 
@@ -748,8 +757,8 @@ else
         end
     end
 
-    shaftWidth = tonumber(args[1])
-    requestedDepth = tonumber(args[2])
+    shaftWidth = tonumber(widthArg)
+    requestedDepth = tonumber(depthArg)
 
     if not shaftWidth then
         shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
@@ -760,7 +769,7 @@ else
         shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
     end
 
-    if args[2] == "bedrock" then
+    if depthArg == "bedrock" then
         requestedDepth = nil
     elseif not requestedDepth then
         requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
@@ -769,6 +778,13 @@ else
     while requestedDepth ~= nil and requestedDepth < 1 do
         print("Depth must be at least 1.")
         requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
+    end
+
+    batchSize = tonumber(batchArg) or batchSize
+
+    while batchSize < 1 do
+        print("Batch size must be at least 1.")
+        batchSize = readNumber("Shaft levels before unload/stair catch-up", 5, false)
     end
 end
 
@@ -781,6 +797,7 @@ print("Shaft diameter: " .. shaftWidth)
 print("Outer width: " .. outerWidth)
 print("Shaft workspace headroom: " .. WORKSPACE_HEADROOM .. " above floor")
 print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
+print("Batch size: " .. batchSize .. " shaft levels")
 
 if requestedDepth then
     print("Target depth: " .. requestedDepth)
@@ -797,6 +814,10 @@ print("- Shaft begins two blocks forward and two blocks right")
 print("")
 
 if not resumeMode then
+    if recoverMode then
+        print("Recover mode: state will be rebuilt by scanning the existing center shaft.")
+    end
+
     if not readYesNo("Ready to start", true) then
         print("Cancelled.")
         return
@@ -819,6 +840,64 @@ local function maybeServiceShaft()
     elseif fuelLevel() < distanceToHome() + 30 then
         serviceByCoordinates("Fuel is low.", true)
     end
+end
+
+local function isTorchBlock(name)
+    return type(name) == "string" and name:find("torch", 1, true) ~= nil
+end
+
+local function scanExistingShaftDepth()
+    print("")
+    print("Recovery scan: measuring existing center shaft depth...")
+    setPhase("recover_scan")
+
+    moveToDepth(0)
+    moveToX(shaftOffset)
+    moveToZ(shaftOffset)
+    turnTo(DIR_EAST)
+
+    local scannedDepth = 0
+
+    while requestedDepth == nil or scannedDepth < requestedDepth do
+        if turtle.detectDown() then
+            local ok, data = turtle.inspectDown()
+
+            if ok and data and isTorchBlock(data.name) then
+                local cleared, reason = clearDown()
+
+                if not cleared then
+                    return false, reason
+                end
+            else
+                break
+            end
+        end
+
+        local moved, reason = moveDown()
+
+        if not moved then
+            return false, reason
+        end
+
+        scannedDepth = scannedDepth + 1
+
+        if scannedDepth % batchSize == 0 then
+            print("Recovery scan depth: " .. scannedDepth)
+        end
+    end
+
+    completedDepth = scannedDepth
+    stairActions = {}
+    stairStepsDone = 0
+    stairSideIndex = 1
+    stairSideMovesDone = 0
+    stairPathProgress = 0
+    stairsInitialized = false
+
+    print("Recovery scan found completed shaft depth: " .. completedDepth)
+    setPhase("shaft")
+    saveState()
+    return true
 end
 
 local function mineShaftLayer()
@@ -872,13 +951,12 @@ local function mineCentralShaft()
     print("Mining shaft with live staircase updates")
 
     local stopReason = nil
+    local batchProgress = 0
 
     while requestedDepth == nil or completedDepth < requestedDepth do
         print("Mining shaft layer " .. tostring(completedDepth + 1) .. "...")
         setPhase("shaft")
-        moveToX(shaftOffset)
-        moveToZ(shaftOffset)
-        turnTo(DIR_EAST)
+        moveToShaftStartAtDepth(completedDepth)
 
         local ok, reason = mineShaftLayer()
 
@@ -888,36 +966,58 @@ local function mineCentralShaft()
         end
 
         completedDepth = completedDepth + 1
+        batchProgress = batchProgress + 1
         saveState()
         print("Central shaft depth: " .. completedDepth)
 
-        serviceByCoordinates("Unloading shaft layer " .. completedDepth .. ".", false)
-        setPhase("home")
-
         local reachedTarget = requestedDepth ~= nil and completedDepth >= requestedDepth
-        local stairsOk, stairsReason = advanceStairsTo(completedDepth, reachedTarget)
+        local shouldCatchUp = reachedTarget or batchProgress >= batchSize
 
-        if not stairsOk then
-            stopReason = "staircase stopped: " .. tostring(stairsReason)
-            break
+        if shouldCatchUp then
+            batchProgress = 0
+            serviceByCoordinates("Unloading shaft batch through depth " .. completedDepth .. ".", false)
+            setPhase("home")
+
+            local stairsOk, stairsReason = advanceStairsTo(completedDepth, reachedTarget)
+
+            if not stairsOk then
+                stopReason = "staircase stopped: " .. tostring(stairsReason)
+                break
+            end
+
+            if reachedTarget then
+                break
+            end
+
+            if not moveFromCurrentStairToShaft() then
+                print("Could not enter shaft directly from stair end; using staircase return.")
+                serviceByStairs("Returning to chest before continuing shaft.", false)
+            end
+
+            moveToShaftStartAtDepth(completedDepth)
+            setPhase("shaft")
+        else
+            local moved, moveReason = moveDown()
+
+            if not moved then
+                stopReason = moveReason
+                break
+            end
         end
-
-        if reachedTarget then
-            break
-        end
-
-        if not moveFromCurrentStairToShaft() then
-            print("Could not enter shaft directly from stair end; using staircase return.")
-            serviceByStairs("Returning to chest before continuing shaft.", false)
-        end
-
-        moveToShaftStartAtDepth(completedDepth)
-        setPhase("shaft")
     end
 
     if x ~= 0 or y ~= 0 or z ~= 0 then
         serviceByCoordinates("Central shaft phase finished.", false)
         setPhase("home")
+    end
+
+    if stairStepsDone < completedDepth then
+        print("Catching staircase up to completed shaft depth...")
+        local stairsOk, stairsReason = advanceStairsTo(completedDepth, true)
+
+        if not stairsOk then
+            stopReason = stopReason or ("staircase stopped: " .. tostring(stairsReason))
+        end
     end
 
     return completedDepth, stopReason
@@ -1391,6 +1491,17 @@ local function recoverLoadedState()
     end
 
     return true
+end
+
+if recoverMode then
+    local scanned, scanReason = scanExistingShaftDepth()
+
+    if not scanned then
+        print("")
+        print("Recovery scan failed: " .. tostring(scanReason))
+        markStopped("recover_failed")
+        return
+    end
 end
 
 local recovered, recoveryReason = recoverLoadedState()
