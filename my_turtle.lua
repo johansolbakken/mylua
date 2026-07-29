@@ -656,6 +656,8 @@ local function goHomeByCoordinates()
     moveToZ(0)
     moveToX(0)
     turnTo(DIR_EAST)
+    stairPathProgress = 0
+    saveState()
 end
 
 local function goToPosition(position)
@@ -807,6 +809,9 @@ waitForFuel(20, "Add starting fuel to the turtle.")
 markRunning(currentPhase)
 
 local advanceStairsTo
+local moveFromCurrentStairToShaft
+local moveToShaftStartAtDepth
+local serviceByStairs
 
 local function maybeServiceShaft()
     if inventoryNeedsUnload() then
@@ -889,23 +894,24 @@ local function mineCentralShaft()
         serviceByCoordinates("Unloading shaft layer " .. completedDepth .. ".", false)
         setPhase("home")
 
-        local stairsOk, stairsReason = advanceStairsTo(completedDepth)
+        local reachedTarget = requestedDepth ~= nil and completedDepth >= requestedDepth
+        local stairsOk, stairsReason = advanceStairsTo(completedDepth, reachedTarget)
 
         if not stairsOk then
             stopReason = "staircase stopped: " .. tostring(stairsReason)
             break
         end
 
-        if requestedDepth ~= nil and completedDepth >= requestedDepth then
+        if reachedTarget then
             break
         end
 
-        goToPosition({
-            x = shaftOffset,
-            y = completedDepth,
-            z = shaftOffset,
-            facing = DIR_EAST,
-        })
+        if not moveFromCurrentStairToShaft() then
+            print("Could not enter shaft directly from stair end; using staircase return.")
+            serviceByStairs("Returning to chest before continuing shaft.", false)
+        end
+
+        moveToShaftStartAtDepth(completedDepth)
         setPhase("shaft")
     end
 
@@ -929,6 +935,154 @@ local function stairReturnCost()
     end
 
     return cost
+end
+
+local function atHome()
+    return x == 0 and y == 0 and z == 0
+end
+
+local function isInShaftCell(cellX, cellZ)
+    return cellX >= shaftOffset and cellX < shaftOffset + shaftWidth and
+        cellZ >= shaftOffset and cellZ < shaftOffset + shaftWidth
+end
+
+local function directionFromDelta(deltaX, deltaZ)
+    if deltaX == 1 and deltaZ == 0 then
+        return DIR_EAST
+    elseif deltaX == -1 and deltaZ == 0 then
+        return DIR_WEST
+    elseif deltaX == 0 and deltaZ == 1 then
+        return DIR_SOUTH
+    elseif deltaX == 0 and deltaZ == -1 then
+        return DIR_NORTH
+    end
+
+    return nil
+end
+
+local function stairStateAtProgress(progress)
+    local state = {
+        x = 0,
+        y = 0,
+        z = 0,
+        facing = DIR_EAST,
+    }
+
+    for index = 1, math.min(progress, #stairActions) do
+        local action = stairActions[index]
+
+        if action == "right" then
+            state.facing = (state.facing + 1) % 4
+        elseif action == "landing" then
+            state.x = state.x + dx[state.facing]
+            state.z = state.z + dz[state.facing]
+        elseif action == "step" then
+            state.x = state.x + dx[state.facing]
+            state.z = state.z + dz[state.facing]
+            state.y = state.y + 1
+        end
+    end
+
+    return state
+end
+
+local function shaftEntryForStairState(state)
+    local right = (state.facing + 1) % 4
+    local innerX = state.x + dx[right]
+    local innerZ = state.z + dz[right]
+    local candidates = {
+        { x = innerX + 1, z = innerZ },
+        { x = innerX - 1, z = innerZ },
+        { x = innerX, z = innerZ + 1 },
+        { x = innerX, z = innerZ - 1 },
+    }
+
+    for _, candidate in ipairs(candidates) do
+        if isInShaftCell(candidate.x, candidate.z) then
+            return {
+                shaftX = candidate.x,
+                shaftZ = candidate.z,
+                innerX = innerX,
+                innerZ = innerZ,
+                fromShaftToInner = directionFromDelta(innerX - candidate.x, innerZ - candidate.z),
+                fromInnerToPath = (state.facing + 3) % 4,
+            }
+        end
+    end
+
+    return nil
+end
+
+local function moveToStairProgressThroughShaft(progress)
+    local state = stairStateAtProgress(progress)
+    local entry = shaftEntryForStairState(state)
+
+    if not entry or not entry.fromShaftToInner then
+        return false
+    end
+
+    goToPosition({
+        x = entry.shaftX,
+        y = state.y,
+        z = entry.shaftZ,
+        facing = entry.fromShaftToInner,
+    })
+
+    mustMove(moveForward())
+    turnTo(entry.fromInnerToPath)
+    mustMove(moveForward())
+    turnTo(state.facing)
+
+    stairPathProgress = progress
+    saveState()
+    return true
+end
+
+local function fastEnterStairPath()
+    if not atHome() or stairPathProgress ~= 0 or #stairActions == 0 then
+        return false
+    end
+
+    for progress = #stairActions, 1, -1 do
+        if shaftEntryForStairState(stairStateAtProgress(progress)) then
+            print("Fast-entering staircase at saved action " .. progress .. "/" .. #stairActions)
+            return moveToStairProgressThroughShaft(progress)
+        end
+    end
+
+    return false
+end
+
+moveFromCurrentStairToShaft = function()
+    local state = stairStateAtProgress(stairPathProgress)
+    local entry = shaftEntryForStairState(state)
+
+    if not entry or not entry.fromShaftToInner then
+        return false
+    end
+
+    turnRight()
+    mustMove(moveForward())
+    turnTo((entry.fromShaftToInner + 2) % 4)
+    mustMove(moveForward())
+    setPhase("shaft")
+    return true
+end
+
+moveToShaftStartAtDepth = function(depth)
+    if isInShaftCell(x, z) then
+        moveToX(shaftOffset)
+        moveToZ(shaftOffset)
+        moveToDepth(depth)
+        turnTo(DIR_EAST)
+    else
+        goToPosition({
+            x = shaftOffset,
+            y = depth,
+            z = shaftOffset,
+            facing = DIR_EAST,
+        })
+    end
 end
 
 local function returnHomeByStairs()
@@ -971,7 +1125,7 @@ local function replayStairs()
     end
 end
 
-local function serviceByStairs(reason, returnToWork)
+serviceByStairs = function(reason, returnToWork)
     print("")
     print(reason)
     print("Returning to chest...")
@@ -1141,9 +1295,13 @@ local function makeCornerLandingIfNeeded()
     return true
 end
 
-advanceStairsTo = function(targetDepth)
+advanceStairsTo = function(targetDepth, returnHomeWhenDone)
     if targetDepth <= stairStepsDone then
         return true
+    end
+
+    if returnHomeWhenDone == nil then
+        returnHomeWhenDone = true
     end
 
     print("")
@@ -1155,6 +1313,10 @@ advanceStairsTo = function(targetDepth)
 
     if not ready then
         return false, reason
+    end
+
+    if stairPathProgress == 0 and #stairActions > 0 then
+        fastEnterStairPath()
     end
 
     replayStairs()
@@ -1184,12 +1346,13 @@ advanceStairsTo = function(targetDepth)
             " (side " .. stairSideIndex .. ", offset " .. stairSideMovesDone .. ")")
     end
 
-    serviceByStairs("Staircase caught up to shaft depth.", false)
-    return true
-end
+    if returnHomeWhenDone then
+        serviceByStairs("Staircase caught up to shaft depth.", false)
+    else
+        setPhase("stairs")
+    end
 
-local function atHome()
-    return x == 0 and y == 0 and z == 0
+    return true
 end
 
 local function phaseLooksLikeStairs()
