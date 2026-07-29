@@ -5,8 +5,8 @@ local DIR_SOUTH = 1
 local DIR_WEST = 2
 local DIR_NORTH = 3
 local STAIR_TUNNEL_HEIGHT = 4
-local WORKSPACE_HEADROOM = 3
-local WORKSPACE_TUNNEL_HEIGHT = WORKSPACE_HEADROOM + 1
+local TOP_SHAFT_HEADROOM = 3
+local TOP_SHAFT_TUNNEL_HEIGHT = TOP_SHAFT_HEADROOM + 1
 
 local dx = {
     [DIR_EAST] = 1,
@@ -795,7 +795,7 @@ print("")
 print("Square shaft staircase")
 print("Shaft diameter: " .. shaftWidth)
 print("Outer width: " .. outerWidth)
-print("Shaft workspace headroom: " .. WORKSPACE_HEADROOM .. " above floor")
+print("Top shaft headroom: " .. TOP_SHAFT_HEADROOM .. " above floor")
 print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
 print("Batch size: " .. batchSize .. " shaft levels")
 
@@ -900,15 +900,20 @@ local function scanExistingShaftDepth()
     return true
 end
 
-local function mineShaftLayer()
+local function mineShaftLayer(clearTopHeadroom)
     for row = 1, shaftWidth do
         for column = 1, shaftWidth do
             maybeServiceShaft()
 
-            local cleared, reason = clearTunnelHeight(WORKSPACE_TUNNEL_HEIGHT)
+            local cleared = true
+            local reason = nil
 
-            if not cleared then
-                return false, reason
+            if clearTopHeadroom then
+                cleared, reason = clearTunnelHeight(TOP_SHAFT_TUNNEL_HEIGHT)
+
+                if not cleared then
+                    return false, reason
+                end
             end
 
             cleared, reason = clearDown()
@@ -958,7 +963,7 @@ local function mineCentralShaft()
         setPhase("shaft")
         moveToShaftStartAtDepth(completedDepth)
 
-        local ok, reason = mineShaftLayer()
+        local ok, reason = mineShaftLayer(completedDepth == 0)
 
         if not ok then
             stopReason = reason
