@@ -4,6 +4,7 @@ local DIR_EAST = 0
 local DIR_SOUTH = 1
 local DIR_WEST = 2
 local DIR_NORTH = 3
+local STAIR_TUNNEL_HEIGHT = 4
 
 local dx = {
     [DIR_EAST] = 1,
@@ -298,6 +299,48 @@ local function moveBackward()
     turnAround()
 end
 
+local function clearTunnelHeight(height)
+    height = height or STAIR_TUNNEL_HEIGHT
+
+    if height < 2 then
+        return true
+    end
+
+    local climbed = 0
+
+    for level = 1, height - 1 do
+        local cleared, reason = clearUp()
+
+        if not cleared then
+            for _ = 1, climbed do
+                mustMove(moveDown())
+            end
+
+            return false, reason
+        end
+
+        if level < height - 1 then
+            local moved, moveReason = moveUp()
+
+            if not moved then
+                for _ = 1, climbed do
+                    mustMove(moveDown())
+                end
+
+                return false, moveReason
+            end
+
+            climbed = climbed + 1
+        end
+    end
+
+    for _ = 1, climbed do
+        mustMove(moveDown())
+    end
+
+    return true
+end
+
 local function emptySlots()
     local count = 0
 
@@ -453,6 +496,7 @@ print("")
 print("Square shaft staircase")
 print("Shaft diameter: " .. shaftWidth)
 print("Outer width: " .. outerWidth)
+print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
 
 if requestedDepth then
     print("Target depth: " .. requestedDepth)
@@ -667,7 +711,7 @@ local function clearInnerLane()
         return false, moveReason
     end
 
-    cleared, reason = clearUp()
+    cleared, reason = clearTunnelHeight()
 
     if not cleared then
         moveBackward()
@@ -685,7 +729,7 @@ local function ensureStairsInitialized()
         return true
     end
 
-    local cleared, reason = clearUp()
+    local cleared, reason = clearTunnelHeight()
 
     if not cleared then
         return false, reason
@@ -730,7 +774,7 @@ local function stairStep()
 
     stairActions[#stairActions + 1] = "step"
 
-    cleared, reason = clearUp()
+    cleared, reason = clearTunnelHeight()
 
     if not cleared then
         return false, reason
