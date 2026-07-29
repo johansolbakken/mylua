@@ -26,11 +26,29 @@ local x = 0
 local y = 0
 local z = 0
 local facing = DIR_EAST
+local STATE_PATH = "my_turtle.state"
 local LOG_MAGIC = "MYLUA_TURTLE_LOG_V1"
 local LOG_PROTOCOL = "mylua:turtle_log"
 local nativePrint = print
 local logModemName = nil
 local logBroadcastEnabled = false
+local resumeMode = args[1] == "resume" or args[1] == "--resume" or args[1] == "continue"
+local stateStatus = "stopped"
+local currentPhase = "init"
+local shaftWidth = nil
+local requestedDepth = nil
+local outerWidth = nil
+local sideLength = nil
+local shaftOffset = 2
+local completedDepth = 0
+local stairActions = {}
+local stairStepsDone = 0
+local stairSideIndex = 1
+local stairSideMovesDone = 0
+local stairPathProgress = 0
+local stairsInitialized = false
+local stateLoaded = false
+local saveState
 
 local function valueToString(value)
     if value == nil then
@@ -132,6 +150,128 @@ if enableLogBroadcast() then
     print("Log broadcast enabled on modem: " .. logModemName)
 else
     nativePrint("Log broadcast disabled: no modem found")
+end
+
+local function copyList(list)
+    local result = {}
+
+    if type(list) ~= "table" then
+        return result
+    end
+
+    for index, value in ipairs(list) do
+        result[index] = value
+    end
+
+    return result
+end
+
+local function writeStateFile(state)
+    local serialized = textutils.serialize(state)
+    local temporaryPath = STATE_PATH .. ".tmp"
+    local file = fs.open(temporaryPath, "w")
+
+    if not file then
+        error("Cannot write " .. temporaryPath, 0)
+    end
+
+    file.write(serialized)
+    file.close()
+
+    if fs.exists(STATE_PATH) then
+        fs.delete(STATE_PATH)
+    end
+
+    fs.move(temporaryPath, STATE_PATH)
+end
+
+saveState = function()
+    if not shaftWidth then
+        return
+    end
+
+    writeStateFile({
+        version = 1,
+        status = stateStatus,
+        phase = currentPhase,
+        shaftWidth = shaftWidth,
+        requestedDepth = requestedDepth,
+        completedDepth = completedDepth,
+        stairActions = copyList(stairActions),
+        stairStepsDone = stairStepsDone,
+        stairSideIndex = stairSideIndex,
+        stairSideMovesDone = stairSideMovesDone,
+        stairPathProgress = stairPathProgress,
+        stairsInitialized = stairsInitialized,
+        x = x,
+        y = y,
+        z = z,
+        facing = facing,
+    })
+end
+
+local function setPhase(phase)
+    currentPhase = phase
+    saveState()
+end
+
+local function markRunning(phase)
+    stateStatus = "running"
+    currentPhase = phase or currentPhase
+    saveState()
+end
+
+local function markStopped(phase)
+    stateStatus = "stopped"
+    currentPhase = phase or currentPhase
+    saveState()
+end
+
+local function loadStateFile()
+    if not fs.exists(STATE_PATH) then
+        return nil
+    end
+
+    local file = fs.open(STATE_PATH, "r")
+
+    if not file then
+        return nil
+    end
+
+    local contents = file.readAll()
+    file.close()
+
+    local state = textutils.unserialize(contents)
+
+    if type(state) ~= "table" then
+        return nil
+    end
+
+    return state
+end
+
+local function applyLoadedState(state)
+    shaftWidth = state.shaftWidth
+    requestedDepth = state.requestedDepth
+    completedDepth = state.completedDepth or 0
+    stairActions = copyList(state.stairActions)
+    stairStepsDone = state.stairStepsDone or 0
+    stairSideIndex = state.stairSideIndex or 1
+    stairSideMovesDone = state.stairSideMovesDone or 0
+    stairPathProgress = state.stairPathProgress or 0
+    stairsInitialized = state.stairsInitialized or false
+    x = state.x or 0
+    y = state.y or 0
+    z = state.z or 0
+    facing = state.facing or DIR_EAST
+    stateStatus = state.status or "running"
+    currentPhase = state.phase or "resume"
+    stateLoaded = true
+end
+
+local function activeStateExists()
+    local state = loadStateFile()
+    return state and state.status ~= "stopped"
 end
 
 local function readNumber(prompt, default, allowBlank)
@@ -299,11 +439,13 @@ end
 local function turnLeft()
     turtle.turnLeft()
     facing = (facing + 3) % 4
+    saveState()
 end
 
 local function turnRight()
     turtle.turnRight()
     facing = (facing + 1) % 4
+    saveState()
 end
 
 local function turnAround()
@@ -330,6 +472,7 @@ local function moveForward()
         if success then
             x = x + dx[facing]
             z = z + dz[facing]
+            saveState()
             return true
         end
 
@@ -354,6 +497,7 @@ local function moveDown()
 
         if success then
             y = y + 1
+            saveState()
             return true
         end
 
@@ -378,6 +522,7 @@ local function moveUp()
 
         if success then
             y = y - 1
+            saveState()
             return true
         end
 
@@ -574,32 +719,59 @@ local function serviceByCoordinates(reason, returnToWork)
     end
 end
 
-local shaftWidth = tonumber(args[1])
-local requestedDepth = tonumber(args[2])
+if resumeMode then
+    local state = loadStateFile()
 
-if not shaftWidth then
-    shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
+    if not state or state.status == "stopped" then
+        print("No active miner state to resume.")
+        return
+    end
+
+    if not state.shaftWidth then
+        print("Miner state is missing shaftWidth; cannot resume.")
+        return
+    end
+
+    applyLoadedState(state)
+    stateStatus = "running"
+    saveState()
+    print("Loaded miner state from " .. STATE_PATH)
+else
+    if activeStateExists() then
+        print("An active miner state already exists.")
+
+        if not readYesNo("Replace it and start a new run", false) then
+            print("Cancelled.")
+            return
+        end
+    end
+
+    shaftWidth = tonumber(args[1])
+    requestedDepth = tonumber(args[2])
+
+    if not shaftWidth then
+        shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
+    end
+
+    while shaftWidth < 2 or shaftWidth % 2 ~= 0 do
+        print("Use an even shaft diameter, such as 6, 8, 10, or 12.")
+        shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
+    end
+
+    if args[2] == "bedrock" then
+        requestedDepth = nil
+    elseif not requestedDepth then
+        requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
+    end
+
+    while requestedDepth ~= nil and requestedDepth < 1 do
+        print("Depth must be at least 1.")
+        requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
+    end
 end
 
-while shaftWidth < 2 or shaftWidth % 2 ~= 0 do
-    print("Use an even shaft diameter, such as 6, 8, 10, or 12.")
-    shaftWidth = readNumber("Shaft diameter/width in blocks (even)", 8, false)
-end
-
-if args[2] == "bedrock" then
-    requestedDepth = nil
-elseif not requestedDepth then
-    requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
-end
-
-while requestedDepth ~= nil and requestedDepth < 1 do
-    print("Depth must be at least 1.")
-    requestedDepth = readNumber("Depth to dig, blank for bedrock", nil, true)
-end
-
-local outerWidth = shaftWidth + 4
-local sideLength = outerWidth - 1
-local shaftOffset = 2
+outerWidth = shaftWidth + 4
+sideLength = outerWidth - 1
 
 print("")
 print("Square shaft staircase")
@@ -622,12 +794,17 @@ print("- Chest directly behind")
 print("- Shaft begins two blocks forward and two blocks right")
 print("")
 
-if not readYesNo("Ready to start", true) then
-    print("Cancelled.")
-    return
+if not resumeMode then
+    if not readYesNo("Ready to start", true) then
+        print("Cancelled.")
+        return
+    end
+else
+    print("Resume mode: continuing saved miner state.")
 end
 
 waitForFuel(20, "Add starting fuel to the turtle.")
+markRunning(currentPhase)
 
 local advanceStairsTo
 
@@ -689,11 +866,11 @@ local function mineCentralShaft()
     print("")
     print("Mining shaft with live staircase updates")
 
-    local completedDepth = 0
     local stopReason = nil
 
     while requestedDepth == nil or completedDepth < requestedDepth do
         print("Mining shaft layer " .. tostring(completedDepth + 1) .. "...")
+        setPhase("shaft")
         moveToX(shaftOffset)
         moveToZ(shaftOffset)
         turnTo(DIR_EAST)
@@ -706,9 +883,11 @@ local function mineCentralShaft()
         end
 
         completedDepth = completedDepth + 1
+        saveState()
         print("Central shaft depth: " .. completedDepth)
 
         serviceByCoordinates("Unloading shaft layer " .. completedDepth .. ".", false)
+        setPhase("home")
 
         local stairsOk, stairsReason = advanceStairsTo(completedDepth)
 
@@ -727,20 +906,16 @@ local function mineCentralShaft()
             z = shaftOffset,
             facing = DIR_EAST,
         })
+        setPhase("shaft")
     end
 
     if x ~= 0 or y ~= 0 or z ~= 0 then
         serviceByCoordinates("Central shaft phase finished.", false)
+        setPhase("home")
     end
 
     return completedDepth, stopReason
 end
-
-local stairActions = {}
-local stairStepsDone = 0
-local stairSideIndex = 1
-local stairSideMovesDone = 0
-local stairsInitialized = false
 
 local function stairReturnCost()
     local cost = 0
@@ -759,7 +934,9 @@ end
 local function returnHomeByStairs()
     waitForFuel(stairReturnCost() + 2, "Need enough fuel to climb back to the chest.")
 
-    for index = #stairActions, 1, -1 do
+    local startIndex = math.min(stairPathProgress, #stairActions)
+
+    for index = startIndex, 1, -1 do
         local action = stairActions[index]
 
         if action == "right" then
@@ -770,11 +947,16 @@ local function returnHomeByStairs()
             mustMove(moveUp())
             moveBackward()
         end
+
+        stairPathProgress = index - 1
+        saveState()
     end
 end
 
 local function replayStairs()
-    for _, action in ipairs(stairActions) do
+    for index = stairPathProgress + 1, #stairActions do
+        local action = stairActions[index]
+
         if action == "right" then
             turnRight()
         elseif action == "landing" then
@@ -783,6 +965,9 @@ local function replayStairs()
             mustMove(moveForward())
             mustMove(moveDown())
         end
+
+        stairPathProgress = index
+        saveState()
     end
 end
 
@@ -790,12 +975,15 @@ local function serviceByStairs(reason, returnToWork)
     print("")
     print(reason)
     print("Returning to chest...")
+    setPhase("stairs_return")
     returnHomeByStairs()
     unloadAtHome()
+    setPhase("home")
 
     if returnToWork then
         waitForFuel(stairReturnCost() * 2 + 40, "Need more fuel before descending again.")
         print("Returning to staircase...")
+        setPhase("stairs")
         replayStairs()
     end
 end
@@ -856,6 +1044,7 @@ local function ensureStairsInitialized()
     end
 
     stairsInitialized = true
+    saveState()
     return true
 end
 
@@ -887,6 +1076,8 @@ local function stairStep()
     end
 
     stairActions[#stairActions + 1] = "step"
+    stairPathProgress = #stairActions
+    saveState()
 
     cleared, reason = clearTunnelHeight()
 
@@ -911,6 +1102,8 @@ local function landingMove()
     end
 
     stairActions[#stairActions + 1] = "landing"
+    stairPathProgress = #stairActions
+    saveState()
 
     cleared, reason = clearTunnelHeight()
 
@@ -928,8 +1121,10 @@ local function makeCornerLandingIfNeeded()
 
     turnRight()
     stairActions[#stairActions + 1] = "right"
+    stairPathProgress = #stairActions
     stairSideIndex = (stairSideIndex % 4) + 1
     stairSideMovesDone = 0
+    saveState()
 
     for _ = 1, 2 do
         local ok, reason = landingMove()
@@ -939,6 +1134,7 @@ local function makeCornerLandingIfNeeded()
         end
 
         stairSideMovesDone = stairSideMovesDone + 1
+        saveState()
     end
 
     print("Corner landing made on side " .. stairSideIndex)
@@ -952,6 +1148,7 @@ advanceStairsTo = function(targetDepth)
 
     print("")
     print("Extending staircase to depth " .. targetDepth .. "...")
+    setPhase("stairs")
     turnTo(DIR_EAST)
 
     local ready, reason = ensureStairsInitialized()
@@ -982,12 +1179,63 @@ advanceStairsTo = function(targetDepth)
 
         stairStepsDone = nextStep
         stairSideMovesDone = stairSideMovesDone + 1
+        saveState()
         print("Stair depth: " .. stairStepsDone .. "/" .. targetDepth ..
             " (side " .. stairSideIndex .. ", offset " .. stairSideMovesDone .. ")")
     end
 
     serviceByStairs("Staircase caught up to shaft depth.", false)
     return true
+end
+
+local function atHome()
+    return x == 0 and y == 0 and z == 0
+end
+
+local function phaseLooksLikeStairs()
+    return currentPhase and currentPhase:find("stairs", 1, true) ~= nil
+end
+
+local function recoverLoadedState()
+    if not resumeMode or not stateLoaded then
+        return true
+    end
+
+    print("")
+    print("Recovering saved miner state...")
+    print("Saved phase: " .. tostring(currentPhase))
+    print("Saved position: " .. x .. "," .. y .. "," .. z)
+
+    if not atHome() then
+        if phaseLooksLikeStairs() then
+            print("Returning from staircase path to chest...")
+            returnHomeByStairs()
+            unloadAtHome()
+            setPhase("home")
+        else
+            serviceByCoordinates("Returning from saved shaft position.", false)
+            setPhase("home")
+        end
+    end
+
+    if stairStepsDone < completedDepth then
+        print("Catching staircase up to completed shaft depth...")
+        local ok, reason = advanceStairsTo(completedDepth)
+
+        if not ok then
+            return false, reason
+        end
+    end
+
+    return true
+end
+
+local recovered, recoveryReason = recoverLoadedState()
+
+if not recovered then
+    print("")
+    print("Resume recovery failed: " .. tostring(recoveryReason))
+    return
 end
 
 local completedShaftDepth, shaftStopReason = mineCentralShaft()
@@ -1000,6 +1248,7 @@ if completedShaftDepth <= 0 then
         print("Reason: " .. shaftStopReason)
     end
 
+    markStopped("stopped")
     return
 end
 
@@ -1011,3 +1260,5 @@ print("Staircase depth: " .. stairStepsDone)
 if shaftStopReason then
     print("Shaft stopped at bedrock/blocked block: " .. shaftStopReason)
 end
+
+markStopped("complete")
