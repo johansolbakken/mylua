@@ -745,16 +745,9 @@ end
 
 local stairActions = {}
 local stairStepsDone = 0
+local stairSideIndex = 1
+local stairSideMovesDone = 0
 local stairsInitialized = false
-local stairPerimeter = sideLength * 4
-
-local function stairPositionForStep(stepNumber)
-    local index = (stepNumber - 1) % stairPerimeter
-    local side = math.floor(index / sideLength) + 1
-    local offset = (index % sideLength) + 1
-
-    return side, offset
-end
 
 local function stairReturnCost()
     local cost = 0
@@ -762,6 +755,8 @@ local function stairReturnCost()
     for _, action in ipairs(stairActions) do
         if action == "step" then
             cost = cost + 2
+        elseif action == "landing" then
+            cost = cost + 1
         end
     end
 
@@ -776,6 +771,8 @@ local function returnHomeByStairs()
 
         if action == "right" then
             turnLeft()
+        elseif action == "landing" then
+            moveBackward()
         elseif action == "step" then
             mustMove(moveUp())
             moveBackward()
@@ -787,6 +784,8 @@ local function replayStairs()
     for _, action in ipairs(stairActions) do
         if action == "right" then
             turnRight()
+        elseif action == "landing" then
+            mustMove(moveForward())
         elseif action == "step" then
             mustMove(moveForward())
             mustMove(moveDown())
@@ -905,11 +904,52 @@ local function stairStep()
     return clearInnerLane()
 end
 
-local function turnForNextStairStep()
-    if stairStepsDone > 0 and stairStepsDone % sideLength == 0 then
-        turnRight()
-        stairActions[#stairActions + 1] = "right"
+local function landingMove()
+    local cleared, reason = clearForward()
+
+    if not cleared then
+        return false, reason
     end
+
+    local moved, moveReason = moveForward()
+
+    if not moved then
+        return false, moveReason
+    end
+
+    stairActions[#stairActions + 1] = "landing"
+
+    cleared, reason = clearTunnelHeight()
+
+    if not cleared then
+        return false, reason
+    end
+
+    return clearInnerLane()
+end
+
+local function makeCornerLandingIfNeeded()
+    if stairSideMovesDone == 0 or stairSideMovesDone % sideLength ~= 0 then
+        return true
+    end
+
+    turnRight()
+    stairActions[#stairActions + 1] = "right"
+    stairSideIndex = (stairSideIndex % 4) + 1
+    stairSideMovesDone = 0
+
+    for _ = 1, 2 do
+        local ok, reason = landingMove()
+
+        if not ok then
+            return false, reason
+        end
+
+        stairSideMovesDone = stairSideMovesDone + 1
+    end
+
+    print("Corner landing made on side " .. stairSideIndex)
+    return true
 end
 
 advanceStairsTo = function(targetDepth)
@@ -931,10 +971,15 @@ advanceStairsTo = function(targetDepth)
 
     while stairStepsDone < targetDepth do
         maybeServiceStairs()
-        turnForNextStairStep()
+
+        local landingOk, landingReason = makeCornerLandingIfNeeded()
+
+        if not landingOk then
+            serviceByStairs("Staircase stopped while making a corner landing.", false)
+            return false, landingReason
+        end
 
         local nextStep = stairStepsDone + 1
-        local side, offset = stairPositionForStep(nextStep)
         local ok, stepReason = stairStep()
 
         if not ok then
@@ -943,8 +988,9 @@ advanceStairsTo = function(targetDepth)
         end
 
         stairStepsDone = nextStep
+        stairSideMovesDone = stairSideMovesDone + 1
         print("Stair depth: " .. stairStepsDone .. "/" .. targetDepth ..
-            " (side " .. side .. ", offset " .. offset .. ")")
+            " (side " .. stairSideIndex .. ", offset " .. stairSideMovesDone .. ")")
     end
 
     serviceByStairs("Staircase caught up to shaft depth.", false)
