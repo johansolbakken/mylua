@@ -605,7 +605,7 @@ print("")
 print("Square shaft staircase")
 print("Shaft diameter: " .. shaftWidth)
 print("Outer width: " .. outerWidth)
-print("Workspace headroom: " .. WORKSPACE_HEADROOM .. " above floor")
+print("Shaft workspace headroom: " .. WORKSPACE_HEADROOM .. " above floor")
 print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
 
 if requestedDepth then
@@ -639,60 +639,18 @@ local function maybeServiceShaft()
     end
 end
 
-local function clearWorkspaceColumn()
-    maybeServiceShaft()
-    return clearTunnelHeight(WORKSPACE_TUNNEL_HEIGHT)
-end
-
-local function clearOuterBoxLayer()
-    moveToDepth(y)
-    moveToZ(0)
-    moveToX(0)
-    turnTo(DIR_EAST)
-
-    for row = 1, outerWidth do
-        for column = 1, outerWidth do
-            local cleared, reason = clearWorkspaceColumn()
-
-            if not cleared then
-                return false, reason
-            end
-
-            if column < outerWidth then
-                mustMove(moveForward())
-            end
-        end
-
-        if row < outerWidth then
-            if row % 2 == 1 then
-                turnRight()
-                mustMove(moveForward())
-                turnRight()
-            else
-                turnLeft()
-                mustMove(moveForward())
-                turnLeft()
-            end
-        end
-    end
-
-    turnRight()
-
-    for _ = 1, outerWidth - 1 do
-        mustMove(moveForward())
-    end
-
-    turnRight()
-
-    return true
-end
-
 local function mineShaftLayer()
     for row = 1, shaftWidth do
         for column = 1, shaftWidth do
             maybeServiceShaft()
 
-            local cleared, reason = clearDown()
+            local cleared, reason = clearTunnelHeight(WORKSPACE_TUNNEL_HEIGHT)
+
+            if not cleared then
+                return false, reason
+            end
+
+            cleared, reason = clearDown()
 
             if not cleared then
                 return false, reason
@@ -735,15 +693,6 @@ local function mineCentralShaft()
     local stopReason = nil
 
     while requestedDepth == nil or completedDepth < requestedDepth do
-        print("Clearing outer workspace layer " .. tostring(completedDepth + 1) .. "...")
-
-        local cleared, clearReason = clearOuterBoxLayer()
-
-        if not cleared then
-            stopReason = clearReason
-            break
-        end
-
         print("Mining shaft layer " .. tostring(completedDepth + 1) .. "...")
         moveToX(shaftOffset)
         moveToZ(shaftOffset)
