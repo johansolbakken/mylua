@@ -5,13 +5,6 @@ local DIR_SOUTH = 1
 local DIR_WEST = 2
 local DIR_NORTH = 3
 
-local directionNames = {
-    [DIR_EAST] = "east",
-    [DIR_SOUTH] = "south",
-    [DIR_WEST] = "west",
-    [DIR_NORTH] = "north",
-}
-
 local dx = {
     [DIR_EAST] = 1,
     [DIR_SOUTH] = 0,
@@ -715,10 +708,10 @@ local function carveStairs(targetDepth)
     local stepsDone = 0
     local stopReason = nil
 
-    while stepsDone < targetDepth do
+    while stepsDone < targetDepth and not stopReason do
         for _ = 1, 4 do
             for _ = 1, sideLength do
-                if stepsDone >= targetDepth then
+                if stepsDone >= targetDepth or stopReason then
                     break
                 end
 
@@ -728,12 +721,15 @@ local function carveStairs(targetDepth)
 
                 if not ok then
                     stopReason = stepReason
-                    stepsDone = targetDepth
                     break
                 end
 
                 stepsDone = stepsDone + 1
                 print("Stair depth: " .. stepsDone .. "/" .. targetDepth)
+            end
+
+            if stopReason then
+                break
             end
 
             if stepsDone < targetDepth then

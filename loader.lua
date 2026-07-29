@@ -4,6 +4,7 @@ local branch = "main"
 
 local files = {
     "loader.lua",
+    "my_turtle.lua",
     "startup.lua",
     "storage_room.lua",
 }
