@@ -6,6 +6,7 @@ local files = {
     "loader.lua",
     "my_turtle.lua",
     "sorter_turtle.lua",
+    "stair_builder.lua",
     "storage_room.lua",
     "turtle_log_monitor.lua",
 }
