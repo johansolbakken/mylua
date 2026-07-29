@@ -475,6 +475,8 @@ end
 
 waitForFuel(20, "Add starting fuel to the turtle.")
 
+local advanceStairsTo
+
 local function maybeServiceShaft()
     if inventoryNeedsUnload() then
         serviceByCoordinates("Inventory nearly full.", true)
@@ -525,7 +527,7 @@ end
 
 local function mineCentralShaft()
     print("")
-    print("Phase 1: central shaft")
+    print("Mining shaft with live staircase updates")
 
     moveToX(shaftOffset)
     moveToZ(shaftOffset)
@@ -547,19 +549,46 @@ local function mineCentralShaft()
         completedDepth = completedDepth + 1
         print("Central shaft depth: " .. completedDepth)
 
+        serviceByCoordinates("Unloading shaft layer " .. completedDepth .. ".", false)
+
+        local stairsOk, stairsReason = advanceStairsTo(completedDepth)
+
+        if not stairsOk then
+            stopReason = "staircase stopped: " .. tostring(stairsReason)
+            break
+        end
+
         if requestedDepth ~= nil and completedDepth >= requestedDepth then
             break
         end
 
-        serviceByCoordinates("Unloading shaft layer " .. completedDepth .. ".", true)
-        mustMove(moveDown())
+        goToPosition({
+            x = shaftOffset,
+            y = completedDepth,
+            z = shaftOffset,
+            facing = DIR_EAST,
+        })
     end
 
-    serviceByCoordinates("Central shaft phase finished.", false)
+    if x ~= 0 or y ~= 0 or z ~= 0 then
+        serviceByCoordinates("Central shaft phase finished.", false)
+    end
+
     return completedDepth, stopReason
 end
 
 local stairActions = {}
+local stairStepsDone = 0
+local stairsInitialized = false
+local stairPerimeter = sideLength * 4
+
+local function stairPositionForStep(stepNumber)
+    local index = (stepNumber - 1) % stairPerimeter
+    local side = math.floor(index / sideLength) + 1
+    local offset = (index % sideLength) + 1
+
+    return side, offset
+end
 
 local function stairReturnCost()
     local cost = 0
@@ -651,6 +680,27 @@ local function clearInnerLane()
     return true
 end
 
+local function ensureStairsInitialized()
+    if stairsInitialized then
+        return true
+    end
+
+    local cleared, reason = clearUp()
+
+    if not cleared then
+        return false, reason
+    end
+
+    cleared, reason = clearInnerLane()
+
+    if not cleared then
+        return false, reason
+    end
+
+    stairsInitialized = true
+    return true
+end
+
 local function stairStep()
     local cleared, reason = clearForward()
 
@@ -689,58 +739,50 @@ local function stairStep()
     return clearInnerLane()
 end
 
-local function carveStairs(targetDepth)
+local function turnForNextStairStep()
+    if stairStepsDone > 0 and stairStepsDone % sideLength == 0 then
+        turnRight()
+        stairActions[#stairActions + 1] = "right"
+    end
+end
+
+advanceStairsTo = function(targetDepth)
+    if targetDepth <= stairStepsDone then
+        return true
+    end
+
     print("")
-    print("Phase 2: two-block-wide spiral staircase")
+    print("Extending staircase to depth " .. targetDepth .. "...")
+    turnTo(DIR_EAST)
 
-    local cleared, reason = clearUp()
+    local ready, reason = ensureStairsInitialized()
 
-    if not cleared then
-        return 0, reason
+    if not ready then
+        return false, reason
     end
 
-    cleared, reason = clearInnerLane()
+    replayStairs()
 
-    if not cleared then
-        return 0, reason
-    end
+    while stairStepsDone < targetDepth do
+        maybeServiceStairs()
+        turnForNextStairStep()
 
-    local stepsDone = 0
-    local stopReason = nil
+        local nextStep = stairStepsDone + 1
+        local side, offset = stairPositionForStep(nextStep)
+        local ok, stepReason = stairStep()
 
-    while stepsDone < targetDepth and not stopReason do
-        for _ = 1, 4 do
-            for _ = 1, sideLength do
-                if stepsDone >= targetDepth or stopReason then
-                    break
-                end
-
-                maybeServiceStairs()
-
-                local ok, stepReason = stairStep()
-
-                if not ok then
-                    stopReason = stepReason
-                    break
-                end
-
-                stepsDone = stepsDone + 1
-                print("Stair depth: " .. stepsDone .. "/" .. targetDepth)
-            end
-
-            if stopReason then
-                break
-            end
-
-            if stepsDone < targetDepth then
-                turnRight()
-                stairActions[#stairActions + 1] = "right"
-            end
+        if not ok then
+            serviceByStairs("Staircase stopped before catching up.", false)
+            return false, stepReason
         end
+
+        stairStepsDone = nextStep
+        print("Stair depth: " .. stairStepsDone .. "/" .. targetDepth ..
+            " (side " .. side .. ", offset " .. offset .. ")")
     end
 
-    serviceByStairs("Staircase phase finished.", false)
-    return stepsDone, stopReason
+    serviceByStairs("Staircase caught up to shaft depth.", false)
+    return true
 end
 
 local completedShaftDepth, shaftStopReason = mineCentralShaft()
@@ -756,17 +798,11 @@ if completedShaftDepth <= 0 then
     return
 end
 
-local completedStairDepth, stairStopReason = carveStairs(completedShaftDepth)
-
 print("")
 print("Done.")
 print("Central shaft depth: " .. completedShaftDepth)
-print("Staircase depth: " .. completedStairDepth)
+print("Staircase depth: " .. stairStepsDone)
 
 if shaftStopReason then
     print("Shaft stopped at bedrock/blocked block: " .. shaftStopReason)
-end
-
-if stairStopReason then
-    print("Staircase stopped at bedrock/blocked block: " .. stairStopReason)
 end
