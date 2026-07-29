@@ -26,6 +26,113 @@ local x = 0
 local y = 0
 local z = 0
 local facing = DIR_EAST
+local LOG_MAGIC = "MYLUA_TURTLE_LOG_V1"
+local LOG_PROTOCOL = "mylua:turtle_log"
+local nativePrint = print
+local logModemName = nil
+local logBroadcastEnabled = false
+
+local function valueToString(value)
+    if value == nil then
+        return "nil"
+    end
+
+    return tostring(value)
+end
+
+local function findLogModem()
+    if not peripheral or not peripheral.find then
+        return nil
+    end
+
+    local fallback = nil
+    local found = nil
+
+    peripheral.find("modem", function(name, modem)
+        if not fallback then
+            fallback = name
+        end
+
+        if modem and modem.isWireless then
+            local ok, wireless = pcall(modem.isWireless)
+
+            if ok and wireless then
+                found = name
+                return true
+            end
+        end
+
+        return false
+    end)
+
+    return found or fallback
+end
+
+local function enableLogBroadcast()
+    if not rednet or not rednet.open then
+        return false
+    end
+
+    logModemName = findLogModem()
+
+    if not logModemName then
+        return false
+    end
+
+    local ok = pcall(rednet.open, logModemName)
+
+    if not ok then
+        return false
+    end
+
+    if rednet.isOpen and not rednet.isOpen(logModemName) then
+        return false
+    end
+
+    logBroadcastEnabled = true
+    return true
+end
+
+local function broadcastLogMessage(message)
+    if not logBroadcastEnabled then
+        return
+    end
+
+    local payload = {
+        magic = LOG_MAGIC,
+        kind = "log",
+        computerId = os.getComputerID and os.getComputerID() or nil,
+        label = os.getComputerLabel and os.getComputerLabel() or nil,
+        message = message,
+        x = x,
+        y = y,
+        z = z,
+        facing = facing,
+        time = os.time and os.time() or nil,
+    }
+
+    pcall(rednet.broadcast, payload, LOG_PROTOCOL)
+end
+
+local function print(...)
+    local values = { ... }
+    local parts = {}
+
+    for index = 1, #values do
+        parts[index] = valueToString(values[index])
+    end
+
+    local message = table.concat(parts, " ")
+
+    nativePrint(message)
+    broadcastLogMessage(message)
+end
+
+if enableLogBroadcast() then
+    print("Log broadcast enabled on modem: " .. logModemName)
+else
+    nativePrint("Log broadcast disabled: no modem found")
+end
 
 local function readNumber(prompt, default, allowBlank)
     while true do
@@ -133,19 +240,11 @@ local function waitForFuel(required, context)
     end
 end
 
-local function blockNameFromDetail(data)
-    if data and data.name then
-        return data.name
-    end
-
-    return "unknown block"
-end
-
 local function blockName(inspect)
     local ok, data = inspect()
 
-    if ok then
-        return blockNameFromDetail(data)
+    if ok and data and data.name then
+        return data.name
     end
 
     return "unknown block"
@@ -155,51 +254,8 @@ local function formatDigReason(direction, reason, inspect)
     return "blocked " .. direction .. " by " .. blockName(inspect) .. " (" .. tostring(reason) .. ")"
 end
 
-local function isProtectedBlock(data)
-    if not data or not data.name then
-        return false
-    end
-
-    local path = data.name:match(":(.+)$") or data.name
-
-    if path:find("torch", 1, true) then
-        return true
-    end
-
-    if data.tags then
-        for tag in pairs(data.tags) do
-            if tag:find("torches", 1, true) then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
-local function waitForProtectedBlock(direction, inspect)
-    while true do
-        local ok, data = inspect()
-
-        if not ok or not isProtectedBlock(data) then
-            return
-        end
-
-        print("")
-        print("Protected block " .. direction .. ": " .. blockNameFromDetail(data))
-        print("Move it manually if needed, then press Enter.")
-        read()
-    end
-end
-
 local function clearForward()
     while turtle.detect() do
-        waitForProtectedBlock("forward", turtle.inspect)
-
-        if not turtle.detect() then
-            break
-        end
-
         local success, reason = turtle.dig()
 
         if not success then
@@ -214,12 +270,6 @@ end
 
 local function clearUp()
     while turtle.detectUp() do
-        waitForProtectedBlock("above", turtle.inspectUp)
-
-        if not turtle.detectUp() then
-            break
-        end
-
         local success, reason = turtle.digUp()
 
         if not success then
@@ -234,12 +284,6 @@ end
 
 local function clearDown()
     while turtle.detectDown() do
-        waitForProtectedBlock("below", turtle.inspectDown)
-
-        if not turtle.detectDown() then
-            break
-        end
-
         local success, reason = turtle.digDown()
 
         if not success then

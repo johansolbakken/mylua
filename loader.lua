@@ -6,8 +6,8 @@ local files = {
     "loader.lua",
     "my_turtle.lua",
     "sorter_turtle.lua",
-    "startup.lua",
     "storage_room.lua",
+    "turtle_log_monitor.lua",
 }
 
 local function getLatestCommit()
