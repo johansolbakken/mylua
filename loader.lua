@@ -4,13 +4,13 @@ local branch = "main"
 
 local files = {
     "loader.lua",
-    "my_turtle.lua",
-    "my_turtle_startup.lua",
-    "room_sign.lua",
-    "sorter_turtle.lua",
-    "stair_builder.lua",
-    "storage_room.lua",
-    "turtle_log_monitor.lua",
+    "bin/my_turtle.lua",
+    "bin/my_turtle_startup.lua",
+    "bin/room_sign.lua",
+    "bin/sorter_turtle.lua",
+    "bin/stair_builder.lua",
+    "bin/storage_room.lua",
+    "bin/turtle_log_monitor.lua",
 }
 
 local function getLatestCommit()

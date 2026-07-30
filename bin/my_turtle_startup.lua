@@ -1,5 +1,5 @@
 local STATE_PATH = "my_turtle.state"
-local PROGRAM = "my_turtle"
+local PROGRAM = "bin/my_turtle"
 
 local function loadState()
     if not fs.exists(STATE_PATH) then
