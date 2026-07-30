@@ -124,7 +124,8 @@ local function addProgress(parts, used, payload)
     end
 
     local current = log.field(payload, "current") or log.field(payload, "completedDepth") or log.field(payload, "stairDepth") or log.field(payload, "depth")
-    local total = log.field(payload, "total") or log.field(payload, "targetDepth") or log.field(payload, "requestedDepth")
+    local total = log.field(payload, "total") or log.field(payload, "targetDepth") or
+        log.field(payload, "requestedDepth") or log.field(payload, "targetLength")
 
     if current == nil and total == nil then
         return
@@ -137,6 +138,7 @@ local function addProgress(parts, used, payload)
     used.total = true
     used.targetDepth = true
     used.requestedDepth = true
+    used.targetLength = true
 
     if total ~= nil then
         parts[#parts + 1] = "progress=" .. tostring(current or "?") .. "/" .. tostring(total)
@@ -224,6 +226,10 @@ function render.details(payload)
     addPart(parts, used, "distance", "distance", log.field(payload, "distance"))
     addPart(parts, used, "shaftWidth", "shaft", log.field(payload, "shaftWidth"))
     addPart(parts, used, "batchSize", "batch", log.field(payload, "batchSize"))
+    addPart(parts, used, "torchSpacing", "torchesEvery", log.field(payload, "torchSpacing"))
+    addPart(parts, used, "torches", "torches", log.field(payload, "torches"))
+    addPart(parts, used, "emptySlots", "empty", log.field(payload, "emptySlots"))
+    addPart(parts, used, "junkDropped", "junk", log.field(payload, "junkDropped"))
     addPart(parts, used, "side", "side", log.field(payload, "side"))
     addPart(parts, used, "offset", "offset", log.field(payload, "offset"))
     addPart(parts, used, "slot", "slot", log.field(payload, "slot"))

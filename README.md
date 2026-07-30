@@ -7,11 +7,13 @@ ComputerCraft Lua programs developed locally and synced into Minecraft computers
 - `loader.lua` stays at the repo root. It is the bootstrap/update script to run on a ComputerCraft computer.
 - `bin/` contains runnable programs.
 - `lib/` contains reusable modules for programs in `bin/`.
+- `lib/items.lua` contains shared item classification for junk, goods, valuables, and torches.
 
 Current programs:
 
 - `bin/my_turtle.lua`: square shaft miner with staircase support
 - `bin/my_turtle_startup.lua`: resumes an active `my_turtle` state
+- `bin/horizontal_miner.lua`: straight horizontal goods miner with junk discard, torch placement, and chest unloads
 - `bin/log_monitor.lua`: generic monitor display for distributed logs
 - `bin/turtle_log_monitor.lua`: compatibility alias for `bin/log_monitor.lua`
 - `bin/room_sign.lua`: configurable room sign monitor
@@ -61,6 +63,7 @@ When adding files, update the `files` table in `loader.lua`. If a file was renam
 ```lua
 local files = {
     "loader.lua",
+    "lib/items.lua",
     "lib/log.lua",
     "lib/log_render.lua",
     "lib/peripherals.lua",
@@ -88,6 +91,37 @@ From the shell prompt, use:
 ```text
 bin/farm_turtle
 ```
+
+## Horizontal Miner
+
+`bin/horizontal_miner.lua` digs a straight 1-wide, 2-high tunnel. It drops stone-like junk below the turtle, keeps ores and unknown non-junk items, places torches in side pockets, and returns to the chest behind the start position when inventory is nearly full.
+
+Start position:
+
+- turtle faces the direction to mine
+- chest or inventory is directly behind the turtle
+- torches are in the turtle inventory
+- fuel is already loaded or available in the turtle inventory
+
+Run with a fixed tunnel length and default torch spacing of 8:
+
+```text
+bin/horizontal_miner 128
+```
+
+Run with a custom torch spacing:
+
+```text
+bin/horizontal_miner 128 6
+```
+
+Run until stopped manually:
+
+```text
+bin/horizontal_miner forever 8
+```
+
+The miner uses `/lib.items` for junk/goods classification and `/lib.log` for structured events such as `tunnel_progress`, `torch_place`, `goods_unload`, and `mine_complete`. Progress and unload logs include a `junkDropped` counter.
 
 ## Peripheral Discovery
 
