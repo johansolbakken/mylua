@@ -1,4 +1,6 @@
 local args = { ... }
+local log = require("lib.log")
+local nativePrint = print
 
 local DIR_EAST = 0
 local DIR_SOUTH = 1
@@ -51,6 +53,28 @@ local actions = {}
 local stairDepth = 0
 local sideIndex = 1
 local sideMovesDone = 0
+local shaftWidth = nil
+local depth = nil
+local logger = log.start({
+    source = "stair_builder",
+    nativePrint = nativePrint,
+    context = function()
+        return {
+            x = x,
+            y = y,
+            z = z,
+            facing = facing,
+            stairDepth = stairDepth,
+            targetDepth = depth,
+            side = sideIndex,
+            offset = sideMovesDone,
+        }
+    end,
+})
+
+local function print(...)
+    nativePrint(...)
+end
 
 local function readNumber(prompt, default)
     while true do
@@ -144,7 +168,11 @@ local function waitForFuel(required, context)
 
     while fuelLevel() < required do
         print("")
-        print(context)
+        logger:warn(context, {
+            event = "fuel_wait",
+            fuel = fuelLevel(),
+            required = required,
+        })
         print("Fuel: " .. tostring(fuelLevel()) .. ", need at least " .. tostring(required) .. ".")
         print("Add fuel to the turtle, then press Enter.")
         read()
@@ -355,7 +383,10 @@ local function refillBlocks()
     local wasAtStart = #actions == 0
 
     print("")
-    print("Out of usable stone-like blocks.")
+    logger:warn("Out of usable stone-like blocks.", {
+        event = "block_refill",
+        returnToWork = not wasAtStart,
+    })
 
     if not wasAtStart then
         print("Returning to start for refill...")
@@ -411,8 +442,8 @@ local function moveStepDown()
     buildCurrentTwoWide()
 end
 
-local shaftWidth = tonumber(args[1])
-local depth = tonumber(args[2])
+shaftWidth = tonumber(args[1])
+depth = tonumber(args[2])
 
 if not shaftWidth then
     shaftWidth = readNumber("Excavated shaft diameter/width", 6)
@@ -441,6 +472,12 @@ print("Shaft diameter: " .. shaftWidth)
 print("Outer tunnel width: " .. outerWidth)
 print("Depth: " .. depth)
 print("")
+logger:info("Two-wide stair builder configured", {
+    event = "stair_builder_start",
+    shaftWidth = shaftWidth,
+    targetDepth = depth,
+    sideLength = sideLength,
+})
 print("Start position:")
 print("- Northwest outside corner of the excavated tunnel")
 print("- Facing east")
@@ -450,7 +487,9 @@ print("- Inventory filled with stone/cobble/deepslate")
 print("")
 
 if not readYesNo("Ready to build", true) then
-    print("Cancelled.")
+    logger:warn("Cancelled.", {
+        event = "cancelled",
+    })
     return
 end
 
@@ -469,18 +508,39 @@ while stairDepth < depth do
             sideMovesDone = sideMovesDone + 1
         end
 
-        print("Corner platform built on side " .. sideIndex)
+        logger:info("Corner platform built", {
+            event = "corner_platform",
+            side = sideIndex,
+            offset = sideMovesDone,
+        })
     end
 
     moveStepDown()
     stairDepth = stairDepth + 1
     sideMovesDone = sideMovesDone + 1
 
-    print("Built stair depth " .. stairDepth .. "/" .. depth ..
-        " (side " .. sideIndex .. ", offset " .. sideMovesDone .. ")")
+    logger:info("Built stair depth " .. stairDepth .. "/" .. depth, {
+        event = "stair_progress",
+        current = stairDepth,
+        total = depth,
+        stairDepth = stairDepth,
+        targetDepth = depth,
+        side = sideIndex,
+        offset = sideMovesDone,
+    })
 end
 
 print("")
-print("Stairs complete. Returning to start...")
+logger:info("Stairs complete. Returning to start...", {
+    event = "stairs_complete",
+    current = stairDepth,
+    total = depth,
+    stairDepth = stairDepth,
+    targetDepth = depth,
+})
 returnToStart()
-print("Done.")
+logger:success("Done.", {
+    event = "complete",
+    current = stairDepth,
+    total = depth,
+})

@@ -13,7 +13,20 @@ local reservedPayloadFields = {
     magic = true,
     kind = true,
     version = true,
+    source = true,
+    computerId = true,
+    label = true,
     message = true,
+    time = true,
+    level = true,
+    event = true,
+    context = true,
+    data = true,
+    protocol = true,
+    nativePrint = true,
+    enabled = true,
+    reason = true,
+    modemName = true,
 }
 
 local function valueToString(value)
@@ -36,16 +49,24 @@ local function currentEpoch()
     return nil
 end
 
-local function copyPayloadFields(payload, fields)
+local function copyFields(target, fields, reserved)
     if type(fields) ~= "table" then
         return
     end
 
     for key, value in pairs(fields) do
-        if type(key) == "string" and not reservedPayloadFields[key] and value ~= nil then
-            payload[key] = value
+        if type(key) == "string" and value ~= nil and type(value) ~= "function" and not (reserved and reserved[key]) then
+            target[key] = value
         end
     end
+end
+
+local function hasFields(fields)
+    if type(fields) ~= "table" then
+        return false
+    end
+
+    return next(fields) ~= nil
 end
 
 local function resolveContext(context)
@@ -75,20 +96,36 @@ end
 
 function log.makePayload(message, options, fields)
     options = options or {}
+    fields = fields or {}
+
+    local context = {}
+    copyFields(context, resolveContext(options.context))
+    copyFields(context, resolveContext(fields.context))
+
+    local data = {}
+    copyFields(data, fields.data)
+    copyFields(data, fields, reservedPayloadFields)
 
     local payload = {
         magic = log.MAGIC,
         kind = "log",
         version = log.VERSION,
-        source = options.source,
+        source = fields.source or options.source,
         computerId = os.getComputerID and os.getComputerID() or nil,
         label = os.getComputerLabel and os.getComputerLabel() or nil,
         message = valueToString(message),
+        level = fields.level or options.level or "info",
+        event = fields.event or options.event,
         time = currentEpoch(),
     }
 
-    copyPayloadFields(payload, resolveContext(options.context))
-    copyPayloadFields(payload, fields)
+    if hasFields(context) then
+        payload.context = context
+    end
+
+    if hasFields(data) then
+        payload.data = data
+    end
 
     return payload
 end
@@ -100,17 +137,44 @@ function log.isPayload(payload)
         payload.version == log.VERSION
 end
 
-function log.formatPayload(sender, payload)
-    local source = payload.label or payload.source or payload.computerId or sender
-    local position = ""
-    local level = ""
-
-    if payload.x ~= nil and payload.y ~= nil and payload.z ~= nil then
-        position = " @" .. tostring(payload.x) .. "," .. tostring(payload.y) .. "," .. tostring(payload.z)
+function log.field(payload, key)
+    if type(payload) ~= "table" then
+        return nil
     end
 
-    if payload.level and payload.level ~= "info" then
-        level = "[" .. tostring(payload.level):upper() .. "] "
+    if payload[key] ~= nil then
+        return payload[key]
+    end
+
+    if type(payload.data) == "table" and payload.data[key] ~= nil then
+        return payload.data[key]
+    end
+
+    if type(payload.context) == "table" and payload.context[key] ~= nil then
+        return payload.context[key]
+    end
+
+    return nil
+end
+
+function log.sourceFor(sender, payload)
+    return log.field(payload, "label") or log.field(payload, "source") or log.field(payload, "computerId") or sender
+end
+
+function log.formatPayload(sender, payload)
+    local source = log.sourceFor(sender, payload)
+    local position = ""
+    local level = ""
+    local x = log.field(payload, "x")
+    local y = log.field(payload, "y")
+    local z = log.field(payload, "z")
+
+    if x ~= nil and y ~= nil and z ~= nil then
+        position = " @" .. tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+    end
+
+    if log.field(payload, "level") and log.field(payload, "level") ~= "info" then
+        level = "[" .. tostring(log.field(payload, "level")):upper() .. "] "
     end
 
     return level .. tostring(source) .. position .. ": " .. tostring(payload.message or "")
@@ -167,6 +231,15 @@ function log.open(options)
     return log.start(options)
 end
 
+local function withLevel(level, fields)
+    local result = {}
+
+    copyFields(result, fields)
+    result.level = result.level or level
+
+    return result
+end
+
 function Logger:send(message, fields)
     if not self.enabled then
         return false, self.reason
@@ -182,15 +255,48 @@ function Logger:send(message, fields)
     return true
 end
 
-function Logger:print(...)
-    local message = log.formatValues(...)
+function Logger:log(level, message, fields)
+    message = valueToString(message)
 
     if self.nativePrint then
         self.nativePrint(message)
     end
 
-    self:send(message)
+    self:send(message, withLevel(level or "info", fields))
     return message
+end
+
+function Logger:info(message, fields)
+    return self:log("info", message, fields)
+end
+
+function Logger:warn(message, fields)
+    return self:log("warn", message, fields)
+end
+
+function Logger:error(message, fields)
+    return self:log("error", message, fields)
+end
+
+function Logger:debug(message, fields)
+    return self:log("debug", message, fields)
+end
+
+function Logger:success(message, fields)
+    return self:log("success", message, fields)
+end
+
+function Logger:event(event, message, fields, level)
+    fields = withLevel(level or "info", fields)
+    fields.event = event
+
+    return self:log(fields.level, message or event, fields)
+end
+
+function Logger:print(...)
+    local message = log.formatValues(...)
+
+    return self:log("info", message)
 end
 
 function Logger:wrapPrint(nativePrint)

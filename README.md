@@ -12,7 +12,8 @@ Current programs:
 
 - `bin/my_turtle.lua`: square shaft miner with staircase support
 - `bin/my_turtle_startup.lua`: resumes an active `my_turtle` state
-- `bin/turtle_log_monitor.lua`: monitor display for distributed logs
+- `bin/log_monitor.lua`: generic monitor display for distributed logs
+- `bin/turtle_log_monitor.lua`: compatibility alias for `bin/log_monitor.lua`
 - `bin/room_sign.lua`: configurable room sign monitor
 - `bin/storage_room.lua`: fixed storage room sign
 - `bin/sorter_turtle.lua`: quarry item sorter
@@ -61,6 +62,7 @@ When adding files, update the `files` table in `loader.lua`. If a file was renam
 local files = {
     "loader.lua",
     "lib/log.lua",
+    "lib/log_render.lua",
     "lib/peripherals.lua",
     "bin/farm_turtle.lua",
 }
@@ -168,6 +170,26 @@ logger:print("started")
 
 `logger:print(...)` prints locally and broadcasts the same message if a modem is available. If no modem/rednet is available, local printing still works and `logger.enabled` is `false`.
 
+For structured logs, prefer the level helpers:
+
+```lua
+logger:info("harvested wheat", {
+    event = "harvest",
+    item = "minecraft:wheat",
+    count = 12,
+})
+
+logger:warn("inventory full", {
+    event = "inventory_full",
+    slot = 16,
+})
+
+logger:error("blocked by bedrock", {
+    event = "dig_blocked",
+    reason = "Unbreakable block detected",
+})
+```
+
 Add dynamic context fields to every log:
 
 ```lua
@@ -188,11 +210,12 @@ local logger = log.start({
 logger:print("cleared layer")
 ```
 
-Send one log with extra fields:
+Send one log without local printing:
 
 ```lua
 logger:send("inventory full", {
     level = "warn",
+    event = "inventory_full",
     slot = 16,
 })
 ```
@@ -216,10 +239,20 @@ end
 Set up a separate ComputerCraft computer with a modem and monitor, then run:
 
 ```text
-bin/turtle_log_monitor
+bin/log_monitor
 ```
 
-It listens for log payloads and writes them to the attached monitor. The current protocol constants are:
+To require a specific monitor side/name:
+
+```text
+bin/log_monitor back
+```
+
+`bin/turtle_log_monitor` still exists as an alias for old setups.
+
+The monitor listens for log payloads and writes them to the attached monitor. It uses `lib/log_render.lua` to split each payload into a headline and a compact details row. Known fields such as position, level, phase, status, fuel, progress, item, count, decision, output, and reason get stable labels; unknown custom fields are appended after those.
+
+The current protocol constants are:
 
 - protocol: `mylua:log`
 - payload magic: `MYLUA_LOG_V1`
@@ -229,6 +262,8 @@ The standard payload fields are:
 
 - `magic`, `kind`, `version`
 - `source`, `computerId`, `label`
-- `message`, `time`
+- `message`, `level`, `event`, `time`
+- `context`: common dynamic fields added by the logger
+- `data`: per-message fields
 
-Programs may add fields such as `x`, `y`, `z`, `facing`, `phase`, `status`, and `level`. The monitor uses `log.formatPayload(sender, payload)` so formatting stays centralized in `lib/log.lua`.
+Programs may add fields such as `x`, `y`, `z`, `facing`, `phase`, `status`, `fuel`, `required`, `current`, `total`, `item`, `count`, `decision`, `output`, and `reason`.

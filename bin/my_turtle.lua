@@ -65,7 +65,31 @@ local logger = log.start({
 })
 
 local function print(...)
-    logger:print(...)
+    nativePrint(...)
+end
+
+local function logInfo(event, message, fields)
+    fields = fields or {}
+    fields.event = event
+    logger:info(message, fields)
+end
+
+local function logWarn(event, message, fields)
+    fields = fields or {}
+    fields.event = event
+    logger:warn(message, fields)
+end
+
+local function logError(event, message, fields)
+    fields = fields or {}
+    fields.event = event
+    logger:error(message, fields)
+end
+
+local function logSuccess(event, message, fields)
+    fields = fields or {}
+    fields.event = event
+    logger:success(message, fields)
 end
 
 if logger.enabled then
@@ -296,7 +320,10 @@ local function waitForFuel(required, context)
 
     while fuelLevel() < required do
         print("")
-        print(context)
+        logWarn("fuel_wait", context, {
+            fuel = fuelLevel(),
+            required = required,
+        })
         print("Fuel: " .. tostring(fuelLevel()) .. ", need at least " .. tostring(required) .. ".")
         print("Add fuel to the turtle, then press Enter.")
         read()
@@ -632,15 +659,22 @@ local function serviceByCoordinates(reason, returnToWork)
     }
 
     print("")
-    print(reason)
-    print("Returning to chest...")
+    logInfo("service_start", "Returning to chest...", {
+        reason = reason,
+        returnToWork = returnToWork,
+        distance = distanceToHome(),
+        fuel = fuelLevel(),
+    })
     goHomeByCoordinates()
     unloadAtHome()
 
     if returnToWork then
         local required = (math.abs(position.x) + math.abs(position.z) + position.y) * 2 + 30
         waitForFuel(required, "Need more fuel before returning to the dig.")
-        print("Returning to work...")
+        logInfo("service_return", "Returning to work...", {
+            fuel = fuelLevel(),
+            required = required,
+        })
         goToPosition(position)
     end
 end
@@ -649,19 +683,23 @@ if resumeMode then
     local state = loadStateFile()
 
     if not state or state.status == "stopped" then
-        print("No active miner state to resume.")
+        logWarn("resume_missing", "No active miner state to resume.")
         return
     end
 
     if not state.shaftWidth then
-        print("Miner state is missing shaftWidth; cannot resume.")
+        logError("resume_invalid", "Miner state is missing shaftWidth; cannot resume.")
         return
     end
 
     applyLoadedState(state)
     stateStatus = "running"
     saveState()
-    print("Loaded miner state from " .. STATE_PATH)
+    logInfo("resume_loaded", "Loaded miner state from " .. STATE_PATH, {
+        completedDepth = completedDepth,
+        stairDepth = stairStepsDone,
+        targetDepth = requestedDepth,
+    })
 else
     local argumentOffset = recoverMode and 1 or 0
     local widthArg = args[1 + argumentOffset]
@@ -669,10 +707,10 @@ else
     local batchArg = args[3 + argumentOffset]
 
     if activeStateExists() then
-        print("An active miner state already exists.")
+        logWarn("active_state_exists", "An active miner state already exists.")
 
         if not readYesNo("Replace it and start a new run", false) then
-            print("Cancelled.")
+            logWarn("cancelled", "Cancelled.")
             return
         end
     end
@@ -718,6 +756,11 @@ print("Outer width: " .. outerWidth)
 print("Top shaft headroom: " .. TOP_SHAFT_HEADROOM .. " above floor")
 print("Stair tunnel height: " .. STAIR_TUNNEL_HEIGHT)
 print("Batch size: " .. batchSize .. " shaft levels")
+logInfo("miner_configured", "Square shaft staircase configured", {
+    shaftWidth = shaftWidth,
+    targetDepth = requestedDepth,
+    batchSize = batchSize,
+})
 
 if requestedDepth then
     print("Target depth: " .. requestedDepth)
@@ -735,15 +778,15 @@ print("")
 
 if not resumeMode then
     if recoverMode then
-        print("Recover mode: state will be rebuilt by scanning the existing center shaft.")
+        logInfo("recover_mode", "Recover mode: state will be rebuilt by scanning the existing center shaft.")
     end
 
     if not readYesNo("Ready to start", true) then
-        print("Cancelled.")
+        logWarn("cancelled", "Cancelled.")
         return
     end
 else
-    print("Resume mode: continuing saved miner state.")
+    logInfo("resume_mode", "Resume mode: continuing saved miner state.")
 end
 
 waitForFuel(20, "Add starting fuel to the turtle.")
@@ -768,7 +811,7 @@ end
 
 local function scanExistingShaftDepth()
     print("")
-    print("Recovery scan: measuring existing center shaft depth...")
+    logInfo("recover_scan_start", "Recovery scan: measuring existing center shaft depth...")
     setPhase("recover_scan")
 
     moveToDepth(0)
@@ -802,7 +845,12 @@ local function scanExistingShaftDepth()
         scannedDepth = scannedDepth + 1
 
         if scannedDepth % batchSize == 0 then
-            print("Recovery scan depth: " .. scannedDepth)
+            logInfo("recover_scan_progress", "Recovery scan depth: " .. scannedDepth, {
+                current = scannedDepth,
+                total = requestedDepth,
+                completedDepth = scannedDepth,
+                targetDepth = requestedDepth,
+            })
         end
     end
 
@@ -814,7 +862,12 @@ local function scanExistingShaftDepth()
     stairPathProgress = 0
     stairsInitialized = false
 
-    print("Recovery scan found completed shaft depth: " .. completedDepth)
+    logInfo("recover_scan_complete", "Recovery scan found completed shaft depth: " .. completedDepth, {
+        current = completedDepth,
+        total = requestedDepth,
+        completedDepth = completedDepth,
+        targetDepth = requestedDepth,
+    })
     setPhase("shaft")
     saveState()
     return true
@@ -873,13 +926,20 @@ end
 
 local function mineCentralShaft()
     print("")
-    print("Mining shaft with live staircase updates")
+    logInfo("shaft_start", "Mining shaft with live staircase updates", {
+        completedDepth = completedDepth,
+        targetDepth = requestedDepth,
+    })
 
     local stopReason = nil
     local batchProgress = 0
 
     while requestedDepth == nil or completedDepth < requestedDepth do
-        print("Mining shaft layer " .. tostring(completedDepth + 1) .. "...")
+        logInfo("shaft_layer_start", "Mining shaft layer " .. tostring(completedDepth + 1) .. "...", {
+            depth = completedDepth + 1,
+            completedDepth = completedDepth,
+            targetDepth = requestedDepth,
+        })
         setPhase("shaft")
         moveToShaftStartAtDepth(completedDepth)
 
@@ -893,7 +953,12 @@ local function mineCentralShaft()
         completedDepth = completedDepth + 1
         batchProgress = batchProgress + 1
         saveState()
-        print("Central shaft depth: " .. completedDepth)
+        logInfo("shaft_progress", "Central shaft depth: " .. completedDepth, {
+            current = completedDepth,
+            total = requestedDepth,
+            completedDepth = completedDepth,
+            targetDepth = requestedDepth,
+        })
 
         local reachedTarget = requestedDepth ~= nil and completedDepth >= requestedDepth
         local shouldCatchUp = reachedTarget or batchProgress >= batchSize
@@ -915,7 +980,7 @@ local function mineCentralShaft()
             end
 
             if not moveFromCurrentStairToShaft() then
-                print("Could not enter shaft directly from stair end; using staircase return.")
+                logWarn("shaft_entry_fallback", "Could not enter shaft directly from stair end; using staircase return.")
                 serviceByStairs("Returning to chest before continuing shaft.", false)
             end
 
@@ -937,7 +1002,12 @@ local function mineCentralShaft()
     end
 
     if stairStepsDone < completedDepth then
-        print("Catching staircase up to completed shaft depth...")
+        logInfo("stairs_catchup", "Catching staircase up to completed shaft depth...", {
+            current = stairStepsDone,
+            total = completedDepth,
+            stairDepth = stairStepsDone,
+            targetDepth = completedDepth,
+        })
         local stairsOk, stairsReason = advanceStairsTo(completedDepth, true)
 
         if not stairsOk then
@@ -1152,8 +1222,11 @@ end
 
 serviceByStairs = function(reason, returnToWork)
     print("")
-    print(reason)
-    print("Returning to chest...")
+    logInfo("stairs_service_start", "Returning to chest...", {
+        reason = reason,
+        returnToWork = returnToWork,
+        fuel = fuelLevel(),
+    })
     setPhase("stairs_return")
     returnHomeByStairs()
     unloadAtHome()
@@ -1161,7 +1234,9 @@ serviceByStairs = function(reason, returnToWork)
 
     if returnToWork then
         waitForFuel(stairReturnCost() * 2 + 40, "Need more fuel before descending again.")
-        print("Returning to staircase...")
+        logInfo("stairs_service_return", "Returning to staircase...", {
+            fuel = fuelLevel(),
+        })
         setPhase("stairs")
         replayStairs()
     end
@@ -1316,7 +1391,10 @@ local function makeCornerLandingIfNeeded()
         saveState()
     end
 
-    print("Corner landing made on side " .. stairSideIndex)
+    logInfo("corner_landing", "Corner landing made", {
+        side = stairSideIndex,
+        offset = stairSideMovesDone,
+    })
     return true
 end
 
@@ -1330,7 +1408,12 @@ advanceStairsTo = function(targetDepth, returnHomeWhenDone)
     end
 
     print("")
-    print("Extending staircase to depth " .. targetDepth .. "...")
+    logInfo("stairs_extend_start", "Extending staircase to depth " .. targetDepth .. "...", {
+        current = stairStepsDone,
+        total = targetDepth,
+        stairDepth = stairStepsDone,
+        targetDepth = targetDepth,
+    })
     setPhase("stairs")
     turnTo(DIR_EAST)
 
@@ -1367,8 +1450,14 @@ advanceStairsTo = function(targetDepth, returnHomeWhenDone)
         stairStepsDone = nextStep
         stairSideMovesDone = stairSideMovesDone + 1
         saveState()
-        print("Stair depth: " .. stairStepsDone .. "/" .. targetDepth ..
-            " (side " .. stairSideIndex .. ", offset " .. stairSideMovesDone .. ")")
+        logInfo("stairs_progress", "Stair depth: " .. stairStepsDone .. "/" .. targetDepth, {
+            current = stairStepsDone,
+            total = targetDepth,
+            stairDepth = stairStepsDone,
+            targetDepth = targetDepth,
+            side = stairSideIndex,
+            offset = stairSideMovesDone,
+        })
     end
 
     if returnHomeWhenDone then
@@ -1390,13 +1479,17 @@ local function recoverLoadedState()
     end
 
     print("")
-    print("Recovering saved miner state...")
+    logInfo("resume_recovery_start", "Recovering saved miner state...", {
+        phase = currentPhase,
+        completedDepth = completedDepth,
+        stairDepth = stairStepsDone,
+    })
     print("Saved phase: " .. tostring(currentPhase))
     print("Saved position: " .. x .. "," .. y .. "," .. z)
 
     if not atHome() then
         if phaseLooksLikeStairs() then
-            print("Returning from staircase path to chest...")
+            logInfo("resume_return_stairs", "Returning from staircase path to chest...")
             returnHomeByStairs()
             unloadAtHome()
             setPhase("home")
@@ -1407,7 +1500,12 @@ local function recoverLoadedState()
     end
 
     if stairStepsDone < completedDepth then
-        print("Catching staircase up to completed shaft depth...")
+        logInfo("resume_stairs_catchup", "Catching staircase up to completed shaft depth...", {
+            current = stairStepsDone,
+            total = completedDepth,
+            stairDepth = stairStepsDone,
+            targetDepth = completedDepth,
+        })
         local ok, reason = advanceStairsTo(completedDepth)
 
         if not ok then
@@ -1423,7 +1521,9 @@ if recoverMode then
 
     if not scanned then
         print("")
-        print("Recovery scan failed: " .. tostring(scanReason))
+        logError("recover_scan_failed", "Recovery scan failed: " .. tostring(scanReason), {
+            reason = scanReason,
+        })
         markStopped("recover_failed")
         return
     end
@@ -1433,7 +1533,9 @@ local recovered, recoveryReason = recoverLoadedState()
 
 if not recovered then
     print("")
-    print("Resume recovery failed: " .. tostring(recoveryReason))
+    logError("resume_recovery_failed", "Resume recovery failed: " .. tostring(recoveryReason), {
+        reason = recoveryReason,
+    })
     return
 end
 
@@ -1441,7 +1543,9 @@ local completedShaftDepth, shaftStopReason = mineCentralShaft()
 
 if completedShaftDepth <= 0 then
     print("")
-    print("Stopped before any usable shaft depth was completed.")
+    logError("shaft_no_depth", "Stopped before any usable shaft depth was completed.", {
+        reason = shaftStopReason,
+    })
 
     if shaftStopReason then
         print("Reason: " .. shaftStopReason)
@@ -1452,12 +1556,23 @@ if completedShaftDepth <= 0 then
 end
 
 print("")
-print("Done.")
+logSuccess("complete", "Done.", {
+    current = completedShaftDepth,
+    total = requestedDepth,
+    completedDepth = completedShaftDepth,
+    stairDepth = stairStepsDone,
+    targetDepth = requestedDepth,
+})
 print("Central shaft depth: " .. completedShaftDepth)
 print("Staircase depth: " .. stairStepsDone)
 
 if shaftStopReason then
-    print("Shaft stopped at bedrock/blocked block: " .. shaftStopReason)
+    logWarn("shaft_stopped", "Shaft stopped at bedrock/blocked block: " .. shaftStopReason, {
+        reason = shaftStopReason,
+        completedDepth = completedShaftDepth,
+        stairDepth = stairStepsDone,
+        targetDepth = requestedDepth,
+    })
 end
 
 markStopped("complete")

@@ -1,6 +1,22 @@
+local log = require("lib.log")
+
 local INPUT = "front"
 local STORAGE = "back"
 local TRASH = "down"
+local nativePrint = print
+local logger = log.start({
+    source = "sorter_turtle",
+    nativePrint = nativePrint,
+    context = function()
+        return {
+            status = "sorting",
+        }
+    end,
+})
+
+local function print(...)
+    nativePrint(...)
+end
 
 local exactJunk = {
     ["minecraft:stone"] = true,
@@ -142,7 +158,10 @@ local function dropToStorage()
 
     while turtle.getItemCount() > 0 do
         if not turtle.drop() then
-            print("Storage full; waiting...")
+            logger:warn("Storage full; waiting...", {
+                event = "output_blocked",
+                output = "storage",
+            })
             sleep(5)
         end
     end
@@ -153,14 +172,21 @@ end
 local function dropToTrash()
     while turtle.getItemCount() > 0 do
         if not turtle.dropDown() then
-            print("Trash output blocked; waiting...")
+            logger:warn("Trash output blocked; waiting...", {
+                event = "output_blocked",
+                output = "trash",
+            })
             sleep(5)
         end
     end
 end
 
-print("ATM10 quarry sorter running")
-print("Input: " .. INPUT .. ", storage: " .. STORAGE .. ", trash: " .. TRASH)
+logger:info("ATM10 quarry sorter running", {
+    event = "sorter_start",
+    input = INPUT,
+    storage = STORAGE,
+    trash = TRASH,
+})
 
 while true do
     turtle.select(1)
@@ -175,13 +201,31 @@ while true do
 
     if item then
         if isValuable(item) then
-            print("KEEP: " .. item.name)
+            logger:info("KEEP: " .. item.name, {
+                event = "sort_item",
+                decision = "keep",
+                output = "storage",
+                item = item.name,
+                count = item.count,
+            })
             dropToStorage()
         elseif isJunk(item) then
-            print("TRASH: " .. item.name)
+            logger:info("TRASH: " .. item.name, {
+                event = "sort_item",
+                decision = "trash",
+                output = "trash",
+                item = item.name,
+                count = item.count,
+            })
             dropToTrash()
         else
-            print("UNKNOWN, KEEPING: " .. item.name)
+            logger:warn("UNKNOWN, KEEPING: " .. item.name, {
+                event = "sort_item",
+                decision = "unknown_keep",
+                output = "storage",
+                item = item.name,
+                count = item.count,
+            })
             dropToStorage()
         end
     end
