@@ -1,0 +1,234 @@
+# mylua
+
+ComputerCraft Lua programs developed locally and synced into Minecraft computers.
+
+## Layout
+
+- `loader.lua` stays at the repo root. It is the bootstrap/update script to run on a ComputerCraft computer.
+- `bin/` contains runnable programs.
+- `lib/` contains reusable modules for programs in `bin/`.
+
+Current programs:
+
+- `bin/my_turtle.lua`: square shaft miner with staircase support
+- `bin/my_turtle_startup.lua`: resumes an active `my_turtle` state
+- `bin/turtle_log_monitor.lua`: monitor display for distributed logs
+- `bin/room_sign.lua`: configurable room sign monitor
+- `bin/storage_room.lua`: fixed storage room sign
+- `bin/sorter_turtle.lua`: quarry item sorter
+- `bin/stair_builder.lua`: standalone stair builder
+
+## Loader
+
+`loader.lua` downloads the latest files from the `main` branch of this GitHub repo using the GitHub API and raw file URLs.
+
+Initialize a new in-game computer by downloading only the loader first:
+
+```text
+wget https://raw.githubusercontent.com/johansolbakken/mylua/main/loader.lua loader.lua
+```
+
+Then run the loader to download the rest of the repo files:
+
+```text
+loader
+```
+
+If `wget` is unavailable, enable HTTP in the ComputerCraft config for the world/server and try again.
+
+After the first install, update the computer by running:
+
+```text
+loader
+```
+
+The loader:
+
+- finds the latest commit on `main`
+- downloads `loader.lua`, every listed `bin/*.lua` program, and every listed `lib/*.lua` module
+- creates directories before writing files
+- writes through temporary `.download` files before replacing existing files
+- removes old top-level program files that were moved into `bin/`
+
+When adding files, update the `files` table in `loader.lua`. If a file was renamed or moved and old in-game copies should be deleted, add the old path to `legacyFiles`.
+
+## Adding A New Program
+
+1. Create the program under `bin/`, for example `bin/farm_turtle.lua`.
+2. Add it to the `files` table in `loader.lua`:
+
+```lua
+local files = {
+    "loader.lua",
+    "lib/log.lua",
+    "lib/peripherals.lua",
+    "bin/farm_turtle.lua",
+}
+```
+
+3. Run a syntax check locally:
+
+```sh
+luac -p loader.lua lib/*.lua bin/*.lua
+```
+
+4. Commit and push to `main`.
+5. Run `loader` on each ComputerCraft computer that should receive the update.
+
+Run bin programs by path:
+
+```lua
+shell.run("bin/farm_turtle")
+```
+
+From the shell prompt, use:
+
+```text
+bin/farm_turtle
+```
+
+## Peripheral Discovery
+
+Use `lib.peripherals` when a program needs a modem, monitor, or other peripheral.
+
+```lua
+local peripherals = require("lib.peripherals")
+```
+
+Find any monitor:
+
+```lua
+local monitorName, monitor = peripherals.findMonitor()
+
+if not monitor then
+    error("No monitor found", 0)
+end
+```
+
+Prefer a named side or peripheral:
+
+```lua
+local monitorName, monitor = peripherals.findMonitor("back")
+```
+
+Require a specific side:
+
+```lua
+local _, monitor = peripherals.findMonitor({
+    preferredName = "back",
+    strictPreferred = true,
+})
+```
+
+Wait until a monitor is attached:
+
+```lua
+local monitorName, monitor = peripherals.waitForMonitor({
+    monitorName = "top",
+    waitingMessage = "Attach the status monitor.",
+})
+```
+
+Open rednet on the best modem:
+
+```lua
+local modemName, reason = peripherals.openRednet()
+
+if not modemName then
+    error("Could not open rednet: " .. tostring(reason), 0)
+end
+```
+
+Useful options:
+
+- `preferredName`, `name`, `modemName`, or `monitorName`: preferred peripheral side/name
+- `strictPreferred`: only accept the preferred peripheral
+- `preferWireless`: for modems, defaults to `true`
+- `filter`: function called as `filter(name, wrappedPeripheral)`
+- `waitingMessage`: message printed by `waitForMonitor`
+- `onMissing`: callback used by `waitForMonitor` instead of `waitingMessage`
+
+## Distributed Logging
+
+Use `lib.log` for programs that should broadcast logs over rednet.
+
+```lua
+local log = require("lib.log")
+```
+
+Start logging:
+
+```lua
+local logger = log.start({
+    source = "farm_turtle",
+})
+
+logger:print("started")
+```
+
+`logger:print(...)` prints locally and broadcasts the same message if a modem is available. If no modem/rednet is available, local printing still works and `logger.enabled` is `false`.
+
+Add dynamic context fields to every log:
+
+```lua
+local x, y, z = 0, 0, 0
+
+local logger = log.start({
+    source = "miner",
+    context = function()
+        return {
+            x = x,
+            y = y,
+            z = z,
+            phase = "dig",
+        }
+    end,
+})
+
+logger:print("cleared layer")
+```
+
+Send one log with extra fields:
+
+```lua
+logger:send("inventory full", {
+    level = "warn",
+    slot = 16,
+})
+```
+
+Replace a program's local `print` with distributed logging:
+
+```lua
+local nativePrint = print
+local logger = log.start({
+    source = "my_program",
+    nativePrint = nativePrint,
+})
+
+local function print(...)
+    logger:print(...)
+end
+```
+
+### Log Monitor
+
+Set up a separate ComputerCraft computer with a modem and monitor, then run:
+
+```text
+bin/turtle_log_monitor
+```
+
+It listens for log payloads and writes them to the attached monitor. The current protocol constants are:
+
+- protocol: `mylua:log`
+- payload magic: `MYLUA_LOG_V1`
+- payload version: `1`
+
+The standard payload fields are:
+
+- `magic`, `kind`, `version`
+- `source`, `computerId`, `label`
+- `message`, `time`
+
+Programs may add fields such as `x`, `y`, `z`, `facing`, `phase`, `status`, and `level`. The monitor uses `log.formatPayload(sender, payload)` so formatting stays centralized in `lib/log.lua`.
