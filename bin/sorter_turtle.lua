@@ -1,4 +1,4 @@
-local log = require("lib.log")
+local log = require("/lib.log")
 
 local INPUT = "front"
 local STORAGE = "back"

@@ -1,5 +1,5 @@
 local args = { ... }
-local log = require("lib.log")
+local log = require("/lib.log")
 
 local DIR_EAST = 0
 local DIR_SOUTH = 1

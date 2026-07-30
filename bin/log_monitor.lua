@@ -1,7 +1,7 @@
 local args = { ... }
-local log = require("lib.log")
-local render = require("lib.log_render")
-local peripherals = require("lib.peripherals")
+local log = require("/lib.log")
+local render = require("/lib.log_render")
+local peripherals = require("/lib.peripherals")
 
 local preferredMonitor = args[1]
 local monitorOptions = nil

@@ -94,7 +94,7 @@ bin/farm_turtle
 Use `lib.peripherals` when a program needs a modem, monitor, or other peripheral.
 
 ```lua
-local peripherals = require("lib.peripherals")
+local peripherals = require("/lib.peripherals")
 ```
 
 Find any monitor:
@@ -155,7 +155,7 @@ Useful options:
 Use `lib.log` for programs that should broadcast logs over rednet.
 
 ```lua
-local log = require("lib.log")
+local log = require("/lib.log")
 ```
 
 Start logging:
@@ -251,6 +251,33 @@ bin/log_monitor back
 `bin/turtle_log_monitor` still exists as an alias for old setups.
 
 The monitor listens for log payloads and writes them to the attached monitor. It uses `lib/log_render.lua` to split each payload into a headline and a compact details row. Known fields such as position, level, phase, status, fuel, progress, item, count, decision, output, and reason get stable labels; unknown custom fields are appended after those.
+
+For startup, create `startup.lua` in the computer root:
+
+```lua
+local requiredFiles = {
+    "loader.lua",
+    "lib/log.lua",
+    "lib/log_render.lua",
+    "lib/peripherals.lua",
+    "bin/log_monitor.lua",
+}
+
+for _, path in ipairs(requiredFiles) do
+    if not fs.exists(path) then
+        shell.run("loader")
+        break
+    end
+end
+
+shell.run("bin/log_monitor")
+```
+
+For a specific monitor side/name:
+
+```lua
+shell.run("bin/log_monitor", "back")
+```
 
 The current protocol constants are:
 

@@ -1,5 +1,5 @@
 local args = { ... }
-local peripherals = require("lib.peripherals")
+local peripherals = require("/lib.peripherals")
 
 local STATE_PATH = "room_sign.state"
 local VERSION = 1

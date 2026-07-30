@@ -1,5 +1,5 @@
 local args = { ... }
-local log = require("lib.log")
+local log = require("/lib.log")
 local nativePrint = print
 
 local DIR_EAST = 0

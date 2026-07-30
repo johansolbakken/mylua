@@ -1,4 +1,4 @@
-local peripherals = require("lib.peripherals")
+local peripherals = require("/lib.peripherals")
 
 local _, monitor = peripherals.findMonitor({
     preferredName = "back",
