@@ -1,53 +1,13 @@
-local LOG_MAGIC = "MYLUA_TURTLE_LOG_V1"
-local LOG_PROTOCOL = "mylua:turtle_log"
+local log = require("lib.log")
+local peripherals = require("lib.peripherals")
 
-local function findModem()
-    local fallback = nil
-    local found = nil
-
-    peripheral.find("modem", function(name, modem)
-        if not fallback then
-            fallback = name
-        end
-
-        if modem and modem.isWireless then
-            local ok, wireless = pcall(modem.isWireless)
-
-            if ok and wireless then
-                found = name
-                return true
-            end
-        end
-
-        return false
-    end)
-
-    return found or fallback
-end
-
-local function findMonitor()
-    local monitorName = nil
-    local monitor = peripheral.find("monitor", function(name)
-        monitorName = name
-        return true
-    end)
-
-    return monitorName, monitor
-end
-
-local modemName = findModem()
+local modemName, modemReason = peripherals.openRednet()
 
 if not modemName then
-    error("No modem found", 0)
+    error("No modem found for log listener: " .. tostring(modemReason), 0)
 end
 
-rednet.open(modemName)
-
-local monitorName, monitor = findMonitor()
-
-if not monitor then
-    error("No monitor found", 0)
-end
+local monitorName, monitor = peripherals.waitForMonitor()
 
 pcall(monitor.setTextScale, 0.5)
 monitor.setCursorBlink(false)
@@ -77,8 +37,8 @@ local function draw()
 
     monitor.setBackgroundColor(colors.black)
     monitor.clear()
-    writeLine(1, "Turtle logs  " .. modemName .. "  " .. monitorName, colors.cyan)
-    writeLine(2, "Magic " .. LOG_MAGIC, colors.gray)
+    writeLine(1, "Logs  " .. modemName .. "  " .. monitorName, colors.cyan)
+    writeLine(2, "Protocol " .. log.PROTOCOL, colors.gray)
 
     local start = math.max(1, #lines - bodyHeight + 1)
     local y = 3
@@ -134,25 +94,14 @@ local function wrapText(text)
     pushLine(text)
 end
 
-local function formatPayload(sender, payload)
-    local source = payload.label or payload.computerId or sender
-    local position = ""
-
-    if payload.x and payload.y and payload.z then
-        position = " @" .. tostring(payload.x) .. "," .. tostring(payload.y) .. "," .. tostring(payload.z)
-    end
-
-    return tostring(source) .. position .. ": " .. tostring(payload.message or "")
-end
-
-wrapText("Listening on " .. modemName .. " for " .. LOG_PROTOCOL)
+wrapText("Listening on " .. modemName .. " for " .. log.PROTOCOL)
 draw()
 
 while true do
-    local sender, payload = rednet.receive(LOG_PROTOCOL)
+    local sender, payload = log.receive()
 
-    if type(payload) == "table" and payload.magic == LOG_MAGIC and payload.kind == "log" then
-        wrapText(formatPayload(sender, payload))
+    if sender then
+        wrapText(log.formatPayload(sender, payload))
         draw()
     end
 end

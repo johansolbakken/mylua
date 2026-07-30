@@ -1,4 +1,5 @@
 local args = { ... }
+local log = require("lib.log")
 
 local DIR_EAST = 0
 local DIR_SOUTH = 1
@@ -27,11 +28,7 @@ local y = 0
 local z = 0
 local facing = DIR_EAST
 local STATE_PATH = "my_turtle.state"
-local LOG_MAGIC = "MYLUA_TURTLE_LOG_V1"
-local LOG_PROTOCOL = "mylua:turtle_log"
 local nativePrint = print
-local logModemName = nil
-local logBroadcastEnabled = false
 local resumeMode = args[1] == "resume" or args[1] == "--resume" or args[1] == "continue"
 local recoverMode = args[1] == "recover" or args[1] == "--recover" or args[1] == "scan"
 local stateStatus = "stopped"
@@ -52,106 +49,29 @@ local stairsInitialized = false
 local stateLoaded = false
 local saveState
 
-local function valueToString(value)
-    if value == nil then
-        return "nil"
-    end
-
-    return tostring(value)
-end
-
-local function findLogModem()
-    if not peripheral or not peripheral.find then
-        return nil
-    end
-
-    local fallback = nil
-    local found = nil
-
-    peripheral.find("modem", function(name, modem)
-        if not fallback then
-            fallback = name
-        end
-
-        if modem and modem.isWireless then
-            local ok, wireless = pcall(modem.isWireless)
-
-            if ok and wireless then
-                found = name
-                return true
-            end
-        end
-
-        return false
-    end)
-
-    return found or fallback
-end
-
-local function enableLogBroadcast()
-    if not rednet or not rednet.open then
-        return false
-    end
-
-    logModemName = findLogModem()
-
-    if not logModemName then
-        return false
-    end
-
-    local ok = pcall(rednet.open, logModemName)
-
-    if not ok then
-        return false
-    end
-
-    if rednet.isOpen and not rednet.isOpen(logModemName) then
-        return false
-    end
-
-    logBroadcastEnabled = true
-    return true
-end
-
-local function broadcastLogMessage(message)
-    if not logBroadcastEnabled then
-        return
-    end
-
-    local payload = {
-        magic = LOG_MAGIC,
-        kind = "log",
-        computerId = os.getComputerID and os.getComputerID() or nil,
-        label = os.getComputerLabel and os.getComputerLabel() or nil,
-        message = message,
-        x = x,
-        y = y,
-        z = z,
-        facing = facing,
-        time = os.time and os.time() or nil,
-    }
-
-    pcall(rednet.broadcast, payload, LOG_PROTOCOL)
-end
+local logger = log.start({
+    source = "my_turtle",
+    nativePrint = nativePrint,
+    context = function()
+        return {
+            x = x,
+            y = y,
+            z = z,
+            facing = facing,
+            phase = currentPhase,
+            status = stateStatus,
+        }
+    end,
+})
 
 local function print(...)
-    local values = { ... }
-    local parts = {}
-
-    for index = 1, #values do
-        parts[index] = valueToString(values[index])
-    end
-
-    local message = table.concat(parts, " ")
-
-    nativePrint(message)
-    broadcastLogMessage(message)
+    logger:print(...)
 end
 
-if enableLogBroadcast() then
-    print("Log broadcast enabled on modem: " .. logModemName)
+if logger.enabled then
+    print("Log broadcast enabled on modem: " .. logger.modemName)
 else
-    nativePrint("Log broadcast disabled: no modem found")
+    nativePrint("Log broadcast disabled: " .. tostring(logger.reason or "no modem found"))
 end
 
 local function copyList(list)

@@ -1,4 +1,5 @@
 local args = { ... }
+local peripherals = require("lib.peripherals")
 
 local STATE_PATH = "room_sign.state"
 local VERSION = 1
@@ -80,45 +81,6 @@ local function saveState(state)
     end
 
     fs.move(temporaryPath, STATE_PATH)
-end
-
-local function preferredMonitorIsAvailable(name)
-    if not name or not peripheral.isPresent or not peripheral.getType then
-        return false
-    end
-
-    if not peripheral.isPresent(name) then
-        return false
-    end
-
-    return peripheral.getType(name) == "monitor"
-end
-
-local function findMonitor(preferredName)
-    if preferredMonitorIsAvailable(preferredName) then
-        return preferredName, peripheral.wrap(preferredName)
-    end
-
-    local monitorName = nil
-    local monitor = peripheral.find("monitor", function(name)
-        monitorName = name
-        return true
-    end)
-
-    return monitorName, monitor
-end
-
-local function waitForMonitor(preferredName)
-    while true do
-        local monitorName, monitor = findMonitor(preferredName)
-
-        if monitor then
-            return monitorName, monitor
-        end
-
-        print("No monitor found. Attach a monitor.")
-        os.pullEvent()
-    end
 end
 
 local function setColors(monitor, textColor, backgroundColor)
@@ -359,7 +321,7 @@ end
 state.roomName = roomName
 saveState(state)
 
-local monitorName, monitor = waitForMonitor(state.monitorName)
+local monitorName, monitor = peripherals.waitForMonitor(state.monitorName)
 state.monitorName = monitorName
 saveState(state)
 
@@ -374,12 +336,12 @@ while true do
     if event == "monitor_resize" and name == monitorName then
         drawSign(monitor, roomName)
     elseif event == "peripheral_detach" and name == monitorName then
-        monitorName, monitor = waitForMonitor(nil)
+        monitorName, monitor = peripherals.waitForMonitor(nil)
         state.monitorName = monitorName
         saveState(state)
         drawSign(monitor, roomName)
     elseif event == "peripheral" then
-        local newName, newMonitor = findMonitor(monitorName)
+        local newName, newMonitor = peripherals.findMonitor(monitorName)
 
         if newMonitor then
             monitorName = newName

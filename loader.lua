@@ -4,6 +4,8 @@ local branch = "main"
 
 local files = {
     "loader.lua",
+    "lib/log.lua",
+    "lib/peripherals.lua",
     "bin/my_turtle.lua",
     "bin/my_turtle_startup.lua",
     "bin/room_sign.lua",
@@ -11,6 +13,16 @@ local files = {
     "bin/stair_builder.lua",
     "bin/storage_room.lua",
     "bin/turtle_log_monitor.lua",
+}
+
+local legacyFiles = {
+    "my_turtle.lua",
+    "my_turtle_startup.lua",
+    "room_sign.lua",
+    "sorter_turtle.lua",
+    "stair_builder.lua",
+    "storage_room.lua",
+    "turtle_log_monitor.lua",
 }
 
 local function getLatestCommit()
@@ -108,6 +120,13 @@ local updated = 0
 for _, path in ipairs(files) do
     if downloadFile(commit, path) then
         updated = updated + 1
+    end
+end
+
+for _, path in ipairs(legacyFiles) do
+    if fs.exists(path) and not fs.isDir(path) then
+        fs.delete(path)
+        print("Removed old " .. path)
     end
 end
 

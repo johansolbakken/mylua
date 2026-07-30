@@ -1,4 +1,9 @@
-local monitor = peripheral.wrap("back")
+local peripherals = require("lib.peripherals")
+
+local _, monitor = peripherals.findMonitor({
+    preferredName = "back",
+    strictPreferred = true,
+})
 
 if not monitor then
     error("No monitor found on the back")
