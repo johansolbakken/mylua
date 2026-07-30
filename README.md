@@ -14,6 +14,7 @@ Current programs:
 - `bin/my_turtle.lua`: square shaft miner with staircase support
 - `bin/my_turtle_startup.lua`: resumes an active `my_turtle` state
 - `bin/horizontal_miner.lua`: straight horizontal goods miner with junk discard, torch placement, and chest unloads
+- `bin/room.lua`: rectangular room miner with junk discard, torch placement, and chest unloads
 - `bin/log_monitor.lua`: generic monitor display for distributed logs
 - `bin/turtle_log_monitor.lua`: compatibility alias for `bin/log_monitor.lua`
 - `bin/room_sign.lua`: configurable room sign monitor
@@ -122,6 +123,38 @@ bin/horizontal_miner forever 8
 ```
 
 The miner uses `/lib.items` for junk/goods classification and `/lib.log` for structured events such as `tunnel_progress`, `torch_place`, `goods_unload`, and `mine_complete`. Progress and unload logs include a `junkDropped` counter.
+
+## Room Miner
+
+`bin/room.lua` digs a rectangular room from arguments in `x z y` order:
+
+```text
+bin/room 9 12 4
+```
+
+That command clears a room 9 blocks wide, 12 blocks deep, and 4 blocks high. The turtle mines layer by layer from bottom to top, drops stone-like junk below itself, keeps goods, places torches in small wall pockets, and returns to the chest behind the start position when inventory is nearly full.
+
+Start position:
+
+- turtle is at the front-left-bottom entrance, just outside the room
+- turtle faces into the room depth direction
+- chest or inventory is directly behind the turtle
+- torches are in the turtle inventory if torch placement is enabled
+- fuel is already loaded or available in the turtle inventory
+
+Use a custom torch spacing:
+
+```text
+bin/room 9 12 4 6
+```
+
+Disable torches:
+
+```text
+bin/room 9 12 4 0
+```
+
+The room miner uses `/lib.items` for junk/goods classification and `/lib.log` for structured events such as `room_progress`, `torch_place`, `goods_unload`, and `room_complete`.
 
 ## Peripheral Discovery
 

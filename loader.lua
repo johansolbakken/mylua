@@ -12,6 +12,7 @@ local files = {
     "bin/horizontal_miner.lua",
     "bin/my_turtle.lua",
     "bin/my_turtle_startup.lua",
+    "bin/room.lua",
     "bin/room_sign.lua",
     "bin/sorter_turtle.lua",
     "bin/stair_builder.lua",
