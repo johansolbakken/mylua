@@ -261,7 +261,7 @@ Options:
 bin/ae2_storage --monitor back --bridge left --interval 5 --scale 0.5
 ```
 
-The capacity call supports both known Advanced Peripherals names: `getTotalItemStorage` and `getMaxItemStorage`. This monitor reports combined AE2 byte usage across connected standard storage cells. AE2 cells also have a separate per-cell item type limit, so a system can have free bytes while some cells cannot accept new item types.
+The ME Bridge lookup tries the current Advanced Peripherals peripheral type, `me_bridge`, then falls back to the older `meBridge` name. The capacity call supports both known method names: `getTotalItemStorage` and `getMaxItemStorage`. This monitor reports combined AE2 byte usage across connected standard storage cells. AE2 cells also have a separate per-cell item type limit, so a system can have free bytes while some cells cannot accept new item types.
 
 ## Distributed Logging
 

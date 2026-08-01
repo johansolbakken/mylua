@@ -238,6 +238,12 @@ function peripherals.findMonitor(options)
 end
 
 function peripherals.findMeBridge(options)
+    local name, bridge = peripherals.findPeripheral("me_bridge", options)
+
+    if bridge then
+        return name, bridge
+    end
+
     return peripherals.findPeripheral("meBridge", options)
 end
 
