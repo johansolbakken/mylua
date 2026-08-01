@@ -196,9 +196,13 @@ local function summarizeItems(items)
 end
 
 local function readItemSummary(bridge)
-    local items, methodName, reason = ae2.callFirst(bridge, {
-        "listItems",
-    })
+    local items, methodName, reason = ae2.callFirst(
+        bridge,
+        {
+            "listItems",
+        },
+        {} -- Empty filter means all stored items.
+    )
 
     if type(items) == "table" then
         local summary = summarizeItems(items)
