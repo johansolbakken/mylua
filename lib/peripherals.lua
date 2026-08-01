@@ -3,7 +3,7 @@ local peripherals = {}
 local function normalizeOptions(options)
     if type(options) == "table" then
         if options.preferredName == nil then
-            options.preferredName = options.name or options.modemName or options.monitorName
+            options.preferredName = options.name or options.modemName or options.monitorName or options.bridgeName
         end
 
         return options
@@ -237,6 +237,10 @@ function peripherals.findMonitor(options)
     return peripherals.findPeripheral("monitor", options)
 end
 
+function peripherals.findMeBridge(options)
+    return peripherals.findPeripheral("meBridge", options)
+end
+
 function peripherals.waitForMonitor(options)
     options = normalizeOptions(options)
 
@@ -251,6 +255,26 @@ function peripherals.waitForMonitor(options)
             options.onMissing()
         else
             print(options.waitingMessage or "No monitor found. Attach a monitor.")
+        end
+
+        os.pullEvent()
+    end
+end
+
+function peripherals.waitForMeBridge(options)
+    options = normalizeOptions(options)
+
+    while true do
+        local bridgeName, bridge = peripherals.findMeBridge(options)
+
+        if bridge then
+            return bridgeName, bridge
+        end
+
+        if type(options.onMissing) == "function" then
+            options.onMissing()
+        else
+            print(options.waitingMessage or "No ME Bridge found. Attach an Advanced Peripherals ME Bridge.")
         end
 
         os.pullEvent()

@@ -19,6 +19,8 @@ Current programs:
 - `bin/turtle_log_monitor.lua`: compatibility alias for `bin/log_monitor.lua`
 - `bin/room_sign.lua`: configurable room sign monitor
 - `bin/storage_room.lua`: fixed storage room sign
+- `bin/ae2_storage.lua`: AE2 storage monitor for Advanced Peripherals ME Bridge byte capacity
+- `bin/storage.lua`: compatibility alias for `bin/ae2_storage.lua`
 - `bin/sorter_turtle.lua`: quarry item sorter
 - `bin/stair_builder.lua`: standalone stair builder
 
@@ -189,6 +191,16 @@ local _, monitor = peripherals.findMonitor({
 })
 ```
 
+Find an Advanced Peripherals ME Bridge:
+
+```lua
+local bridgeName, bridge = peripherals.findMeBridge()
+
+if not bridge then
+    error("No ME Bridge found", 0)
+end
+```
+
 Wait until a monitor is attached:
 
 ```lua
@@ -210,12 +222,46 @@ end
 
 Useful options:
 
-- `preferredName`, `name`, `modemName`, or `monitorName`: preferred peripheral side/name
+- `preferredName`, `name`, `modemName`, `monitorName`, or `bridgeName`: preferred peripheral side/name
 - `strictPreferred`: only accept the preferred peripheral
 - `preferWireless`: for modems, defaults to `true`
 - `filter`: function called as `filter(name, wrappedPeripheral)`
 - `waitingMessage`: message printed by `waitForMonitor`
 - `onMissing`: callback used by `waitForMonitor` instead of `waitingMessage`
+
+## AE2 Storage Monitor
+
+`bin/ae2_storage.lua` displays Advanced Peripherals ME Bridge item storage bytes on a monitor or terminal. It shows fullness percentage, a colored progress bar, used/free/total bytes, item count, type count, and top stored items when the bridge API exposes `listItems`.
+
+Build:
+
+```text
+AE2 cable -> ME Bridge
+                |
+          Advanced Computer
+                |
+             Monitor
+```
+
+Run with automatic ME Bridge and monitor discovery:
+
+```text
+bin/ae2_storage
+```
+
+Or use the shorter alias:
+
+```text
+bin/storage
+```
+
+Options:
+
+```text
+bin/ae2_storage --monitor back --bridge left --interval 5 --scale 0.5
+```
+
+The capacity call supports both known Advanced Peripherals names: `getTotalItemStorage` and `getMaxItemStorage`. This monitor reports combined AE2 byte usage across connected standard storage cells. AE2 cells also have a separate per-cell item type limit, so a system can have free bytes while some cells cannot accept new item types.
 
 ## Distributed Logging
 
